@@ -1,0 +1,72 @@
+name: Sync career-ops releases
+
+# Applies published career-ops-hq releases onto this fork with
+# update-system.mjs. The release channel is the one apply() installs:
+# merges that have not been released yet are left alone.
+#
+# Never pass --force. A default apply keeps system files this fork has
+# changed (including this workflow) and skips upstream changes to them.
+# --force would replace those files with the upstream copy.
+
+on:
+  schedule:
+    - cron: '15 12 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-career-ops
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Check for a newer career-ops release
+        id: check
+        run: |
+          set -euo pipefail
+          node update-system.mjs check --force | tee "$RUNNER_TEMP/career-ops-update.json"
+          node --input-type=module -e "
+            import { readFileSync, appendFileSync } from 'node:fs';
+            const report = JSON.parse(readFileSync(process.env.RUNNER_TEMP + '/career-ops-update.json', 'utf8'));
+            const line = (key, value) => appendFileSync(process.env.GITHUB_OUTPUT, key + '=' + value + '\n');
+            line('status', report.status);
+            if (report.local) line('local', report.local);
+            if (report.remote) line('remote', report.remote);
+          "
+
+      - name: Stop when the release check did not succeed
+        if: steps.check.outputs.status != 'up-to-date' && steps.check.outputs.status != 'update-available'
+        run: |
+          echo "update check status: ${{ steps.check.outputs.status }}"
+          exit 1
+
+      - name: Apply the release
+        if: steps.check.outputs.status == 'update-available'
+        env:
+          CAREER_OPS_NPM_INSTALL_TIMEOUT_MS: '300000'
+          CAREER_OPS_PLAYWRIGHT_INSTALL_TIMEOUT_MS: '300000'
+          CAREER_OPS_GIT_FETCH_TIMEOUT_MS: '300000'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          node update-system.mjs apply --confirm
+          git cat-file -e "HEAD:.github/workflows/sync-career-ops.yml"
+
+      - name: Push the update commit
+        if: steps.check.outputs.status == 'update-available'
+        run: |
+          set -euo pipefail
+          git push origin HEAD:main
