@@ -36,7 +36,9 @@ try {
   check('Software Engineering Intern, Lead Generation Platform', 'intern');
   check('Marketing Intern - Senior Living Community', 'intern');
   check('Summer Intern, Director of Product', 'intern');
-  check('Graduate Trainee - Head of Retail Division', 'intern');
+  // Leading "Graduate" is the role's level. A later "Trainee" does not pull
+  // it back to intern, and "Head of" still does not promote it to senior.
+  check('Graduate Trainee - Head of Retail Division', 'entry');
 
   // ── Same for an explicit junior marker ──
   check('Junior Developer - Team Lead Support', 'entry');
@@ -66,8 +68,11 @@ try {
   // ── The acronym preprocessing must survive the change ──
   check('A.I. Researcher', 'mid');
   check('I.T. Specialist II', 'mid');
-  check('Graduate Engineer', 'mid');
-  check('Graduate Engineer Program', 'intern');
+  check('Graduate Engineer', 'entry');
+  check('Graduate Engineer Program', 'entry');
+  check('New Grad Software Engineer', 'entry');
+  check('Early Career Software Engineer', 'entry');
+  check('Fresh Graduate Backend Engineer', 'entry');
 
   // Non-string input keeps its documented fallback.
   check(null, 'mid');
@@ -95,6 +100,7 @@ try {
   check('Intern Program Director', 'senior');
   check('Internship Program Director', 'senior');
   check('Graduate Program Director', 'senior');
+  check('Graduate Programme Director', 'senior');
   check('Graduate Scheme Lead', 'senior');
   check('Trainee Program Director', 'senior');
   check('Junior Talent Director', 'senior');
@@ -103,10 +109,10 @@ try {
 
   // ── Guard (b) scoping: bridge noun present but NO trailing senior noun → stays at level marker ──
   // These cases prove the guard does not overreach. Removing the trailing-noun
-  // requirement at classify-tier.mjs:119 would flip all three to 'senior' and
-  // a junior candidate would silently lose intern-programme roles.
+  // requirement would flip all three to 'senior'. Graduate Scheme Analyst is
+  // entry (the graduate word); the other two stay intern.
   check('Intern Program Coordinator', 'intern');
-  check('Graduate Scheme Analyst', 'intern');
+  check('Graduate Scheme Analyst', 'entry');
   check('Trainee Program Engineer', 'intern');
 
   // ── Guard (a): `associate` names a RANK, not a junior variant (#3178) ──
@@ -153,7 +159,7 @@ try {
   check('Intern, Associate Dean of Student Life', 'intern');
   check('Student Intern, Office of the Associate Provost', 'intern');
   check('Summer Intern, Associate Professor Research Group', 'intern');
-  check('Graduate Trainee, Office of the Associate Dean', 'intern');
+  check('Graduate Trainee, Office of the Associate Dean', 'entry');
   check('Entry-Level Associate, Dean of Admissions Office', 'entry');
   check('Junior Associate Professor Support Specialist', 'entry');
 
@@ -175,6 +181,25 @@ try {
   check('Junior Associate, Dean Witter', 'entry');
   check('Associate Counsel, Office of the General Counsel', 'entry');
   check('Associate Counsel - Office of General Counsel', 'entry');
+
+  // ── Corpus phrases (scan-history titles that were falling through to mid) ──
+  // The old entry pattern required "Graduate" immediately before
+  // software/engineer/developer/analyst. Real SEA new-grad titles put the
+  // cohort marker after the role, in parentheses, or with words in between.
+  check('Backend Engineer, ShopeePay (2026 Graduate)', 'entry');
+  check('Backend Engineer Graduate (Vertical Recommendation Architecture) - 2026 Start', 'entry');
+  check('Graduate Python Developer - RegTech - Singapore - 2026', 'entry');
+  check('Graduate Programme 2027: Software Engineer (Java)', 'entry');
+  check('AI Software Engineer (Nucleus Graduate Programme)', 'entry');
+  check('Software Engineer (Graduate)', 'entry');
+  check('Software Developer - Graduate Hire', 'entry');
+  check('Backend Engineer, Marketplace Promotion (Campus Recruitment 2026)', 'entry');
+  check('Software Engineering Apprentice', 'entry');
+  check('Software Engineer, Algorithm Engineering - 2025 Start', 'entry');
+  // A senior word that leads still wins over a trailing cohort marker.
+  check('Senior Software Engineer (2027 Graduate)', 'senior');
+  check('Lead Backend Engineer - 2027 Start', 'senior');
+  check('Director of Campus Recruitment', 'senior');
 
 } catch (error) {
   fail(`classify-tier.mjs tests could not run: ${error.message}`);
