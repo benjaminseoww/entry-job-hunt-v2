@@ -3701,7 +3701,12 @@ async function main() {
           totalFilteredTitle++;
           continue;
         }
-        if (classifyTier && skipTiers.includes(classifyTier(job.title))) {
+        const titleTier = classifyTier ? classifyTier(job.title) : null;
+        const listedTier = typeof job.tier === 'string' ? job.tier.toLowerCase() : '';
+        const tier = (listedTier === 'intern' || listedTier === 'entry' || listedTier === 'mid' || listedTier === 'senior')
+          ? listedTier
+          : titleTier;
+        if (tier && skipTiers.includes(tier)) {
           totalFilteredTier++;
           continue;
         }

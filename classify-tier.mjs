@@ -44,39 +44,54 @@ export function classifyTier(title) {
 
   // Define matchers with tier and weight (higher weight wins)
   const matchers = [
-    // Senior Tier (weight 4)
-    { pattern: /\bchief\b/i, tier: 'senior', weight: 4 },
-    { pattern: /\bvp\b/i, tier: 'senior', weight: 4 },
-    { pattern: /\bvice\s+president\b/i, tier: 'senior', weight: 4 },
-    { pattern: /\bdirector\b/i, tier: 'senior', weight: 4 },
-    { pattern: /\bprincipal\b/i, tier: 'senior', weight: 4 },
-    { pattern: /\bstaff\b/i, tier: 'senior', weight: 4 },
-    { pattern: /\blead\b/i, tier: 'senior', weight: 4 },
-    { pattern: /\bsenior\b/i, tier: 'senior', weight: 4 },
-    { pattern: /\bsr\b/i, tier: 'senior', weight: 4 },
-    { pattern: /\bsr\./i, tier: 'senior', weight: 4 },
-    { pattern: /\bhead\s+of\b/i, tier: 'senior', weight: 4 },
-    { pattern: /\b[a-z]{2,}[\s-](iii|iv|v)\b/i, tier: 'senior', weight: 4 },
+    // Senior, mid, and intern are weight 0.
+    { pattern: /\bchief\b/i, tier: 'senior', weight: 0 },
+    { pattern: /\bvp\b/i, tier: 'senior', weight: 0 },
+    { pattern: /\bvice\s+president\b/i, tier: 'senior', weight: 0 },
+    { pattern: /\bdirector\b/i, tier: 'senior', weight: 0 },
+    { pattern: /\bprincipal\b/i, tier: 'senior', weight: 0 },
+    { pattern: /\bstaff\b/i, tier: 'senior', weight: 0 },
+    { pattern: /\blead\b/i, tier: 'senior', weight: 0 },
+    { pattern: /\bsenior\b/i, tier: 'senior', weight: 0 },
+    { pattern: /\bsr\b/i, tier: 'senior', weight: 0 },
+    { pattern: /\bsr\./i, tier: 'senior', weight: 0 },
+    { pattern: /\bhead\s+of\b/i, tier: 'senior', weight: 0 },
+    { pattern: /\b[a-z]{2,}[\s-](iii|iv|v)\b/i, tier: 'senior', weight: 0 },
 
-    // Mid Tier (weight 3)
-    { pattern: /\bmid-level\b/i, tier: 'mid', weight: 3 },
-    { pattern: /\bmid\b/i, tier: 'mid', weight: 3 },
-    { pattern: /\b[a-z]{2,}[\s-](ii)\b/i, tier: 'mid', weight: 3 },
-    { pattern: /\b(l4|l5)\b/i, tier: 'mid', weight: 3 },
+    { pattern: /\bmid-level\b/i, tier: 'mid', weight: 0 },
+    { pattern: /\bmid\b/i, tier: 'mid', weight: 0 },
+    { pattern: /\b[a-z]{2,}[\s-](ii)\b/i, tier: 'mid', weight: 0 },
+    { pattern: /\b(l4|l5)\b/i, tier: 'mid', weight: 0 },
 
-    // Entry Tier (weight 2)
-    { pattern: /\bentry-level\b/i, tier: 'entry', weight: 2 },
-    { pattern: /\bentry\b/i, tier: 'entry', weight: 2 },
-    { pattern: /\bassociate\b/i, tier: 'entry', weight: 2 },
-    { pattern: /\bjunior\b/i, tier: 'entry', weight: 2 },
-    { pattern: /\b[a-z]{2,}[\s-](i)\b/i, tier: 'entry', weight: 2 },
-    { pattern: /\b(l1|l2)\b/i, tier: 'entry', weight: 2 },
-
-    // Intern Tier (weight 1)
-    { pattern: /\binternship\b/i, tier: 'intern', weight: 1 },
-    { pattern: /\bintern\b/i, tier: 'intern', weight: 1 },
-    { pattern: /\btrainee\b/i, tier: 'intern', weight: 1 },
-    { pattern: /\bco-op\b/i, tier: 'intern', weight: 1 },
+    // Entry tier (weight 5).
+    //
+    // Phrases below that are not the old guessed "Graduate Engineer" order
+    // come from scan-history titles that were ≤1 YOE / new-grad cohorts and
+    // were falling through to mid:
+    //   "Backend Engineer (2027 Graduate)" / "Engineer Graduate (...)"
+    //   "Graduate Python Developer" (a word between graduate and the role)
+    //   "(Campus Recruitment 2026)" with no junior/graduate word
+    //   "Software Engineering Apprentice"
+    //   "... - 2027 Start" (ByteDance cohort marker; often no "graduate")
+    { pattern: /\bentry-level\b/i, tier: 'entry', weight: 5 },
+    { pattern: /\bentry\b/i, tier: 'entry', weight: 5 },
+    { pattern: /\bassociate\b/i, tier: 'entry', weight: 5 },
+    { pattern: /\bjunior\b/i, tier: 'entry', weight: 5 },
+    { pattern: /\bnew[\s-]?grad(?:uate)?s?\b/i, tier: 'entry', weight: 5 },
+    { pattern: /\bearly[\s-]?career\b/i, tier: 'entry', weight: 5 },
+    { pattern: /\bfresh[\s-]?grad(?:uate)?s?\b/i, tier: 'entry', weight: 5 },
+    { pattern: /\buniversity[\s-]?grad(?:uate)?s?\b/i, tier: 'entry', weight: 5 },
+    { pattern: /\bgraduates?\b/i, tier: 'entry', weight: 5 },
+    { pattern: /\bcampus\s+recruitment\b/i, tier: 'entry', weight: 5 },
+    { pattern: /\bapprentice(?:ship)?s?\b/i, tier: 'entry', weight: 5 },
+    { pattern: /\b20\d{2}\s+start\b/i, tier: 'entry', weight: 5 },
+    { pattern: /\b[a-z]{2,}[\s-](i)\b/i, tier: 'entry', weight: 5 },
+    { pattern: /\b(l1|l2)\b/i, tier: 'entry', weight: 5 },
+    // Intern Tier (weight 0)
+    { pattern: /\binternship\b/i, tier: 'intern', weight: 0 },
+    { pattern: /\bintern\b/i, tier: 'intern', weight: 0 },
+    { pattern: /\btrainee\b/i, tier: 'intern', weight: 0 },
+    { pattern: /\bco-op\b/i, tier: 'intern', weight: 0 },
     {
       pattern: {
         test: (t) => /\bgraduate\b/i.test(t) && /\b(program|scheme)\b/i.test(t),
@@ -90,7 +105,7 @@ export function classifyTier(title) {
         levelWordIndex: (t) => t.search(/\bgraduate\b/i)
       },
       tier: 'intern',
-      weight: 1
+      weight: 0
     }
   ];
 
@@ -145,7 +160,7 @@ export function classifyTier(title) {
   // not itself an internship. The bridge-noun set is a closed list — a generic
   // adjacency rule breaks "Junior Staff Accountant" (staff is a senior matcher but
   // not a bridge word for this construction).
-  const programBridge = /\b(?:intern(?:ship)?|trainee|co-op|graduate|junior|entry(?:-level)?)\s+(?:program|scheme|talent|cohort)\b/i;
+  const programBridge = /\b(?:intern(?:ship)?|trainee|co-op|graduate|junior|entry(?:-level)?)\s+(?:program(?:me)?s?|schemes?|talent|cohort)\b/i;
   if (programBridge.test(cleanTitle)) {
     const afterBridge = cleanTitle.replace(programBridge, ' ').trim();
     if (/\b(chief|vp|vice\s+president|director|principal|staff|lead|senior|sr\.?|head\s+of|partner)\b/i.test(afterBridge)) {
@@ -165,9 +180,9 @@ export function classifyTier(title) {
   // `skip_tiers` without naming it, so a junior candidate skipping `senior`
   // silently lost the internships they were scanning for.
   //
-  // Weight survives only as the tie-break for two markers at the same offset,
-  // which keeps the longer, more specific pattern of an overlapping pair
-  // (`mid-level` over `mid`, `entry-level` over `entry`).
+  // Weight breaks a same-offset tie, and only entry is above 0, so entry
+  // wins that tie. Equal-weight overlaps keep the earlier matcher in the
+  // list (`mid-level` before `mid`, `entry-level` before `entry`).
   let bestMatch = null;
   let bestIndex = Infinity;
 
@@ -233,8 +248,12 @@ function runTests() {
     { title: "Software Engineer", expected: "mid" },
     { title: "Senior Intern Coordinator", expected: "senior" },
     // additional checks to verify our regex logic
-    { title: "Graduate Engineer", expected: "mid" },
-    { title: "Graduate Engineer Program", expected: "intern" },
+    { title: "Graduate Engineer", expected: "entry" },
+    { title: "Graduate Engineer Program", expected: "entry" },
+    { title: "Backend Engineer (2027 Graduate)", expected: "entry" },
+    { title: "Software Engineer, Algorithm Engineering - 2025 Start", expected: "entry" },
+    { title: "New Grad Software Engineer", expected: "entry" },
+    { title: "Early Career Software Engineer", expected: "entry" },
     { title: "A.I. Researcher", expected: "mid" },
     { title: "I.T. Specialist II", expected: "mid" }
   ];
