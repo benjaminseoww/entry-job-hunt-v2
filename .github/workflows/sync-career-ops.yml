@@ -7,6 +7,11 @@ name: Sync career-ops releases
 # Never pass --force. A default apply keeps system files this fork has
 # changed (including this workflow) and skips upstream changes to them.
 # --force would replace those files with the upstream copy.
+#
+# There is no push trigger. A push of this file can still show a failed
+# run when the YAML is invalid, because GitHub validates workflow files
+# on the commit that changes them. A normal commit does not start this job.
+# The daily schedule only applies an update when check reports a new release.
 
 on:
   schedule:
@@ -14,8 +19,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  workflows: write
+  contents: read
 
 concurrency:
   group: sync-career-ops
@@ -28,6 +32,11 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          # GITHUB_TOKEN cannot create or update .github/workflows, even with
+          # contents: write. This PAT needs contents write and workflows write
+          # (classic PAT: repo + workflow).
+          token: ${{ secrets.CAREER_OPS_SYNC_TOKEN }}
+          persist-credentials: true
 
       - uses: actions/setup-node@v7
         with:
