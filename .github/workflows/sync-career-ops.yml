@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: sync-career-ops
@@ -26,6 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: main
           fetch-depth: 0
           token: ${{ secrets.CAREER_OPS_SYNC_TOKEN }}
           persist-credentials: true
@@ -67,8 +69,29 @@ jobs:
           node update-system.mjs apply --confirm
           git cat-file -e "HEAD:.github/workflows/sync-career-ops.yml"
 
-      - name: Push the update commit
+      - name: Open a pull request
         if: steps.check.outputs.status == 'update-available'
+        env:
+          GH_TOKEN: ${{ secrets.CAREER_OPS_SYNC_TOKEN }}
+          LOCAL: ${{ steps.check.outputs.local }}
+          REMOTE: ${{ steps.check.outputs.remote }}
         run: |
           set -euo pipefail
-          git push origin HEAD:main
+          git fetch origin main
+          if [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ]; then
+            echo "apply produced no new commit"
+            exit 0
+          fi
+          branch="chore/career-ops-v${REMOTE}"
+          git checkout -B "$branch"
+          git push --force-with-lease origin "HEAD:${branch}"
+          existing="$(gh pr list --base main --head "$branch" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            echo "pull request #${existing} already open for ${branch}"
+            exit 0
+          fi
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "chore: sync career-ops to v${REMOTE}" \
+            --body "Applies the published career-ops release v${LOCAL} → v${REMOTE}. System files only. CV, profile, tracker, and reports are left untouched."
