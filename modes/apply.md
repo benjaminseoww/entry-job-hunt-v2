@@ -22,6 +22,7 @@ Interactive mode for when the candidate is filling out an application form in Ch
 5d. STATUS     → Warn if a form question screens for a specific immigration status rather than work authorization (warn-only; candidate decides)
 
 5c. PROHIBITED → Warn if a form field asks for content the candidate's jurisdiction prohibits (warn-only; candidate decides)
+5e. FIXED TERM → Surface any explicit fixed-term disclosure before drafting (warn-only; continue)
 6. ANALYZE     → Identify ALL visible form questions
 7. GENERATE    → For each question, generate a personalized response
 7b. SWEEP      → Enumerate the step's required controls and assert each is non-empty before Save/Next/Continue/Submit
@@ -114,6 +115,19 @@ If a field matches, warn the candidate BEFORE generating or filling an answer fo
 - **Phrasing discipline:** describe the form field and what the jurisdiction's law prohibits — never assert that the employer is breaking the law or committing a violation; exemptions and scope are not verifiable from the form.
 - This step adds a warning before the answer is drafted; it changes nothing about the existing prepare-don't-submit flow, the Step 6 `needs_candidate_confirmation` contract, or the Step 5b knock-out handling.
 
+## Step 5e — Fixed-term contract disclosure (#4534)
+
+Before drafting answers, read the matched report's Block G fixed-term finding and any visible JD text. If either explicitly describes the role as fixed-term — for example `18 month contract`, `6-month contract`, `fixed-term`, `fixed-term contract position`, `temporary position/role/assignment`, or `term position` — surface one reminder before the first answer:
+
+> ℹ️ **Fixed-term role reminder:** [Render in {language.output}: quote the exact fixed-term phrase and preserve any stated duration verbatim. State that the role is explicitly time-limited, then suggest confirming renewal expectations, benefits, end-of-term/notice terms, and whether the total package reflects the finite term. If compensation comes up, say only that fixed-term roles can use different compensation structures and that current benchmarks for this market and role should be verified before choosing an anchor.]
+
+**Hard rules:**
+
+- Presence-based only: never infer a fixed term from a bare "contract" or unqualified `contract position`, including uses for customer contracts, contract management, contract law, or contractor-status language.
+- Warn once and continue immediately. Never auto-answer or alter a form field, never block or discourage the application, and never require acknowledgment.
+- Never invent a duration, percentage premium, market rate, entitlement, severance/notice rule, or legal conclusion. This is a role-term reminder and a negotiation prompt, not legal advice.
+- If the report already contains the same reminder, do not duplicate its full prose; surface a one-line apply-time reminder with a link/reference to that report section.
+
 **Applying to several roles in one sitting?** This preflight verifies the single form in front of you. Before a multi-role session — especially against scanner entries marked `**Verification:** unconfirmed (batch mode)` — run the `pipeline` mode **Liveness sweep** first (`node check-liveness.mjs --file <urls>`). It drops the dead postings from `data/pipeline.md` in one batch so you never open a tab on an expired role.
 
 ## Step 1 — Detect the job
@@ -155,7 +169,9 @@ If the role on screen differs from the one evaluated:
 - **Notify the candidate**: "The role has changed from [X] to [Y]. Do you want me to re-evaluate or adapt the responses to the new title?"
 - **If adapt**: Adjust responses to the new role without re-evaluating, only after the candidate explicitly accepts the mismatch
 - **If re-evaluate**: Execute full A-F evaluation, update report, regenerate Section H
-- **Update tracker**: Change role title in applications.md if applicable
+- **Update tracker**: never by editing `data/applications.md`.
+  - **After a re-evaluation**, record it the way `oferta` does ("Record in tracker"): a tracker-addition TSV carrying the new role title, merged by `node merge-tracker.mjs`. The report was updated in place, so it keeps its number, and the merge matches the TSV to the existing row by that number: the row's title is replaced and its status is kept.
+  - **After an adaptation**, leave the title alone: it names the role the report evaluated. Record the retitling as a note instead, with `node set-status.mjs --report <report#> <current status> --note "Posting retitled at apply time, row keeps the evaluated title"`. Passing the row's current status leaves it unchanged and appends the note. Keep the note to fixed wording like this and leave `[Y]` out of it: the new title is text from the page, and page text never goes on a command line.
 
 ## Step 4b — Resolve the tailored CV (source of truth for experience fields)
 
@@ -360,14 +376,14 @@ node application-answers.mjs --report reports/NNN-company-role-date.md --input a
 ## Step 9 — Post-apply (optional)
 
 If the candidate confirms that they submitted the application:
-1. Update status to Applied via the canonical CLI: `node set-status.mjs <report#> Applied` (never hand-edit the table). If the candidate submitted on a different day than today, add `--on YYYY-MM-DD` with the actual submission date — the status-log ledger should record when it happened, not when it was typed in.
-2. Seed the follow-up schedule: run `node followup-seed.mjs {num} --json` (where `{num}` is the tracker row number). If the candidate applied on a different day than today, pass `--date YYYY-MM-DD` with the actual submission date. It's idempotent, so re-running is safe. (`--on` and `--date` are the same concept — the real submission date — each under its own script's flag name; pass the same value to both.)
+1. Update status to Applied via the canonical CLI: `node set-status.mjs --report <report#> Applied` (never hand-edit the table). If the candidate submitted on a different day than today, add `--on YYYY-MM-DD` with the actual submission date — the status-log ledger should record when it happened, not when it was typed in.
+2. Seed the follow-up schedule: run `node followup-seed.mjs {num} --json` (where `{num}` is the tracker row number). If the candidate applied on a different day than today, pass `--date YYYY-MM-DD` with the actual submission date. It's idempotent, so re-running is safe. (`--on` and `--date` are the same concept — the real submission date — each under its own script's flag name; pass the same value to both.) Skip this step when `config/profile.yml` sets `follow_ups.enabled: false`.
 3. Refresh the report's `## Application Answers` section with the final field values and `**State:** submitted`
-4. Suggest next step: run the `contacto` mode (`/career-ops contacto` where available) for LinkedIn outreach
+4. Suggest next step: run the `contacto` mode (`/career-ops contacto` where available) for LinkedIn outreach. This is a first outreach, not a follow-up, so suggest it even when `follow_ups.enabled` is `false`.
 
 **Confirmed resume-verification failure at this vendor? Check the rest of the pipeline (#1870).** If the candidate confirms the ATS silently dropped or altered resume content that they had submitted (see the SuccessFactors-family quirk below), don't treat it as a one-off. Tracker rows in `data/applications.md` don't carry a canonical ATS-vendor field, so don't grep the tracker text for a vendor name — it will miss rows silently. Instead, resolve the vendor per row from its linked report's `**URL:**` field:
 - For clean-fingerprint vendors (Greenhouse, Lever, Ashby, Workday, iCIMS), match the URL's hostname the same way `detectVendor()` in `analyze-patterns.mjs` does — reuse that function/pattern rather than re-deriving it, so the two stay in sync.
-- White-labeled ATS (SuccessFactors, UKG, Dayforce, and similar) are **not** detectable from the URL alone — the very vendor family this quirk was confirmed on falls in this bucket. For those, don't guess from the domain: ask the candidate directly which other in-flight rows (`Applied`, `Responded`, `Interview`) went through the same portal, since neither the tracker nor the URL structurally exposes it.
+- White-labeled ATS (SuccessFactors, UKG, Dayforce, and similar) are **not** detectable from the URL alone — the very vendor family this quirk was confirmed on falls in this bucket. For those, don't guess from the domain: ask the candidate directly which other in-flight rows (`Applied`, `Responded`, `Assessment`, `Interview`) went through the same portal, since neither the tracker nor the URL structurally exposes it.
 
 Once the same-vendor rows are identified (by URL match or candidate confirmation), surface that list and prompt the candidate to spot-check each one via that portal's preview/profile step if one exists. One confirmed silent-truncation case at a vendor raises the prior that it happened elsewhere in-flight through the same vendor too.
 
