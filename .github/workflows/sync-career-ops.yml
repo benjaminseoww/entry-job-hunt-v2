@@ -70,6 +70,13 @@ jobs:
           # This replaces this fork's web/ with the release copy.
           if git cat-file -e FETCH_HEAD:web >/dev/null 2>&1; then
             git checkout FETCH_HEAD -- web
+            comm -23 \
+              <(git ls-files -- web | LC_ALL=C sort) \
+              <(git ls-tree -r --name-only FETCH_HEAD -- web | LC_ALL=C sort) \
+              > "$RUNNER_TEMP/web-removed.txt"
+            if [ -s "$RUNNER_TEMP/web-removed.txt" ]; then
+              git rm -q --pathspec-from-file="$RUNNER_TEMP/web-removed.txt" --
+            fi
             if ! git diff --cached --quiet -- web; then
               if git merge-base --is-ancestor HEAD origin/main; then
                 version="$(tr -d '[:space:]' < VERSION)"
