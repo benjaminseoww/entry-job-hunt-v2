@@ -67,23 +67,78 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           node update-system.mjs apply --confirm
-          # This replaces this fork's web/ with the release copy.
-          if git cat-file -e FETCH_HEAD:web >/dev/null 2>&1; then
-            git checkout FETCH_HEAD -- web
-            comm -23 \
-              <(git ls-files -- web | LC_ALL=C sort) \
-              <(git ls-tree -r --name-only FETCH_HEAD -- web | LC_ALL=C sort) \
-              > "$RUNNER_TEMP/web-removed.txt"
-            if [ -s "$RUNNER_TEMP/web-removed.txt" ]; then
-              git rm -q --pathspec-from-file="$RUNNER_TEMP/web-removed.txt" --
-            fi
-            if ! git diff --cached --quiet -- web; then
-              if git merge-base --is-ancestor HEAD origin/main; then
-                version="$(tr -d '[:space:]' < VERSION)"
-                git commit -m "chore: auto-update system files to v${version}"
-              else
-                git commit --amend --no-edit
-              fi
+          # apply() only checks out SYSTEM_PATHS, and it skips a system file
+          # this fork has edited. Dotfiles such as .gitignore never join that
+          # list. This pass makes every other tracked path match the release
+          # FETCH_HEAD still points at: checkout what the release has, delete
+          # what it no longer has. User-layer paths (DATA_CONTRACT.md, plus
+          # config/local-paths.txt) are left as they are. A new file this fork
+          # owns belongs in config/local-paths.txt. An edit to a file the
+          # release also ships belongs in FORK_KEEP below, or the next sync
+          # replaces it.
+          node --input-type=module <<'EOF'
+          import { execFileSync } from 'node:child_process';
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import {
+            configuredTemplateVariantsFromProfileSource,
+            effectiveUserPaths,
+            isGeneratedTemplateArtifact,
+            isUserConfiguredTemplateVariant,
+          } from './update-system.mjs';
+
+          const git = (args) => execFileSync('git', args, { encoding: 'utf8' });
+          const lines = (args) => git(args).split('\n').filter(Boolean);
+          // Fork edits the release also ships, or files the release does not
+          // have, that this sync must not replace or delete.
+          const FORK_KEEP = new Set([
+            '.github/workflows/sync-career-ops.yml',
+            '.github/workflows/plugin-registry-validate.yml',
+            'classify-tier.mjs',
+            'tests/classify-tier-position.test.mjs',
+          ]);
+          // System scaffolds that live inside a user-layer directory.
+          const SYSTEM_INSIDE_USER = new Set([
+            'writing-samples/README.md',
+            'documents/README.md',
+            'documents/.gitkeep',
+            'interview-prep/sessions/README.md',
+            'interview-prep/sessions/.gitkeep',
+          ]);
+          let variants = {};
+          try {
+            variants = configuredTemplateVariantsFromProfileSource(readFileSync('config/profile.yml', 'utf8'));
+          } catch { /* no profile yet */ }
+          const userSpecs = effectiveUserPaths();
+          const kept = (path) => {
+            if (FORK_KEEP.has(path)) return true;
+            if (SYSTEM_INSIDE_USER.has(path)) return false;
+            if (isGeneratedTemplateArtifact(path)) return true;
+            if (isUserConfiguredTemplateVariant(path, variants)) return true;
+            return userSpecs.some((spec) => spec.endsWith('/') ? path.startsWith(spec) : path === spec);
+          };
+          const release = new Set(lines(['ls-tree', '-r', '--name-only', 'FETCH_HEAD']));
+          const local = lines(['ls-files']);
+          const checkout = [...release].filter((path) => !kept(path));
+          const remove = local.filter((path) => !release.has(path) && !kept(path));
+          const out = process.env.RUNNER_TEMP;
+          writeFileSync(`${out}/sync-checkout.txt`, checkout.join('\n'));
+          writeFileSync(`${out}/sync-remove.txt`, remove.join('\n'));
+          console.log(`release paths to checkout: ${checkout.length}`);
+          console.log(`tracked paths to delete: ${remove.length}`);
+          for (const path of remove) console.log(`  delete ${path}`);
+          EOF
+          if [ -s "$RUNNER_TEMP/sync-checkout.txt" ]; then
+            git checkout FETCH_HEAD --pathspec-from-file="$RUNNER_TEMP/sync-checkout.txt"
+          fi
+          if [ -s "$RUNNER_TEMP/sync-remove.txt" ]; then
+            git rm -q --pathspec-from-file="$RUNNER_TEMP/sync-remove.txt"
+          fi
+          if ! git diff --cached --quiet; then
+            if git merge-base --is-ancestor HEAD origin/main; then
+              version="$(tr -d '[:space:]' < VERSION)"
+              git commit -m "chore: auto-update system files to v${version}"
+            else
+              git commit --amend --no-edit
             fi
           fi
           git cat-file -e "HEAD:.github/workflows/sync-career-ops.yml"
@@ -113,4 +168,4 @@ jobs:
             --base main \
             --head "$branch" \
             --title "chore: sync career-ops to v${REMOTE}" \
-            --body "Applies the published career-ops release v${LOCAL} → v${REMOTE}. System files and web/. CV, profile, tracker, reports, and .career-ops-web/ are left untouched."
+            --body "Applies the published career-ops release v${LOCAL} → v${REMOTE}. Every tracked path matches the release except the user layer (CV, profile, tracker, reports, and the rest of DATA_CONTRACT.md). Files listed in config/local-paths.txt are left untouched."
