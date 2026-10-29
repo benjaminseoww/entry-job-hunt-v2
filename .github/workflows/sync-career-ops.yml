@@ -67,10 +67,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           node update-system.mjs apply --confirm
-          # web/ is not on the updater manifest. Make the tracked tree match
-          # the release: checkout updates and additions, then delete tracked
-          # files the release no longer has. checkout alone leaves those
-          # behind. Personal data is not under web/.
+          # This replaces this fork's web/ with the release copy.
           if git cat-file -e FETCH_HEAD:web >/dev/null 2>&1; then
             git checkout FETCH_HEAD -- web
             comm -23 \
