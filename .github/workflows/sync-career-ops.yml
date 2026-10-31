@@ -1,12 +1,18 @@
 name: Sync career-ops releases
 
-# Applies published career-ops-hq releases onto this fork with
-# update-system.mjs. The release channel is the one apply() installs:
-# merges that have not been released yet are left alone.
+# Merges each published career-ops-hq release into this fork with git, so
+# upstream changes and this fork's own edits are combined instead of one
+# replacing the other. The release channel is the one update-system.mjs
+# installs: merges to upstream main that have not been released yet are left
+# alone.
 #
-# Never pass --force. A default apply keeps system files this fork has
-# changed (including this workflow) and skips upstream changes to them.
-# --force would replace those files with the upstream copy.
+# Merge the sync pull request with a merge commit. A squash would drop
+# upstream's history, and every later sync would conflict again on changes
+# this fork already took.
+#
+# When the merge conflicts, the branch carries the conflict markers and the
+# pull request opens as a draft listing the files. An open sync pull request
+# is never force-pushed, so a resolution in progress on that branch is safe.
 
 on:
   schedule:
@@ -56,116 +62,88 @@ jobs:
           echo "update check status: ${{ steps.check.outputs.status }}"
           exit 1
 
-      - name: Apply the release
+      - name: Skip when a sync pull request is already open
+        id: open
         if: steps.check.outputs.status == 'update-available'
         env:
-          CAREER_OPS_NPM_INSTALL_TIMEOUT_MS: '300000'
-          CAREER_OPS_PLAYWRIGHT_INSTALL_TIMEOUT_MS: '300000'
-          CAREER_OPS_GIT_FETCH_TIMEOUT_MS: '300000'
+          GH_TOKEN: ${{ secrets.CAREER_OPS_SYNC_TOKEN }}
+          REMOTE: ${{ steps.check.outputs.remote }}
+        run: |
+          set -euo pipefail
+          branch="chore/career-ops-v${REMOTE}"
+          echo "branch=${branch}" >> "$GITHUB_OUTPUT"
+          existing="$(gh pr list --base main --head "$branch" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            echo "pull request #${existing} already open for ${branch}"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Merge the release
+        id: merge
+        if: steps.check.outputs.status == 'update-available' && steps.open.outputs.skip != 'true'
+        env:
+          REMOTE: ${{ steps.check.outputs.remote }}
+          BRANCH: ${{ steps.open.outputs.branch }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          node update-system.mjs apply --confirm
-          # apply() only checks out SYSTEM_PATHS, and it skips a system file
-          # this fork has edited. Dotfiles such as .gitignore never join that
-          # list. This pass makes every other tracked path match the release
-          # FETCH_HEAD still points at: checkout what the release has, delete
-          # what it no longer has. User-layer paths (DATA_CONTRACT.md, plus
-          # config/local-paths.txt) are left as they are. A new file this fork
-          # owns belongs in config/local-paths.txt. An edit to a file the
-          # release also ships belongs in FORK_KEEP below, or the next sync
-          # replaces it.
-          node --input-type=module <<'EOF'
-          import { execFileSync } from 'node:child_process';
-          import { readFileSync, writeFileSync } from 'node:fs';
-          import {
-            configuredTemplateVariantsFromProfileSource,
-            effectiveUserPaths,
-            isGeneratedTemplateArtifact,
-            isUserConfiguredTemplateVariant,
-          } from './update-system.mjs';
-
-          const git = (args) => execFileSync('git', args, { encoding: 'utf8' });
-          const lines = (args) => git(args).split('\n').filter(Boolean);
-          // Fork edits the release also ships, or files the release does not
-          // have, that this sync must not replace or delete.
-          const FORK_KEEP = new Set([
-            '.github/workflows/sync-career-ops.yml',
-            '.github/workflows/plugin-registry-validate.yml',
-            'classify-tier.mjs',
-            'tests/classify-tier-position.test.mjs',
-          ]);
-          // System scaffolds that live inside a user-layer directory.
-          const SYSTEM_INSIDE_USER = new Set([
-            'writing-samples/README.md',
-            'documents/README.md',
-            'documents/.gitkeep',
-            'interview-prep/sessions/README.md',
-            'interview-prep/sessions/.gitkeep',
-          ]);
-          let variants = {};
-          try {
-            variants = configuredTemplateVariantsFromProfileSource(readFileSync('config/profile.yml', 'utf8'));
-          } catch { /* no profile yet */ }
-          const userSpecs = effectiveUserPaths();
-          const kept = (path) => {
-            if (FORK_KEEP.has(path)) return true;
-            if (SYSTEM_INSIDE_USER.has(path)) return false;
-            if (isGeneratedTemplateArtifact(path)) return true;
-            if (isUserConfiguredTemplateVariant(path, variants)) return true;
-            return userSpecs.some((spec) => spec.endsWith('/') ? path.startsWith(spec) : path === spec);
-          };
-          const release = new Set(lines(['ls-tree', '-r', '--name-only', 'FETCH_HEAD']));
-          const local = lines(['ls-files']);
-          const checkout = [...release].filter((path) => !kept(path));
-          const remove = local.filter((path) => !release.has(path) && !kept(path));
-          const out = process.env.RUNNER_TEMP;
-          writeFileSync(`${out}/sync-checkout.txt`, checkout.join('\n'));
-          writeFileSync(`${out}/sync-remove.txt`, remove.join('\n'));
-          console.log(`release paths to checkout: ${checkout.length}`);
-          console.log(`tracked paths to delete: ${remove.length}`);
-          for (const path of remove) console.log(`  delete ${path}`);
-          EOF
-          if [ -s "$RUNNER_TEMP/sync-checkout.txt" ]; then
-            git checkout FETCH_HEAD --pathspec-from-file="$RUNNER_TEMP/sync-checkout.txt"
+          tag="career-ops-v${REMOTE}"
+          git fetch --no-tags https://github.com/career-ops-hq/career-ops.git "+refs/tags/${tag}:refs/tags/${tag}"
+          git checkout -B "$BRANCH"
+          if git merge --no-ff --no-edit -m "chore: merge career-ops v${REMOTE}" "$tag"; then
+            echo "conflicted=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          if [ -s "$RUNNER_TEMP/sync-remove.txt" ]; then
-            git rm -q --pathspec-from-file="$RUNNER_TEMP/sync-remove.txt"
+          git diff --name-only --diff-filter=U -z > "$RUNNER_TEMP/conflicts.bin"
+          if [ ! -s "$RUNNER_TEMP/conflicts.bin" ]; then
+            echo "git merge failed without leaving conflicts"
+            exit 1
           fi
-          if ! git diff --cached --quiet; then
-            if git merge-base --is-ancestor HEAD origin/main; then
-              version="$(tr -d '[:space:]' < VERSION)"
-              git commit -m "chore: auto-update system files to v${version}"
-            else
-              git commit --amend --no-edit
-            fi
-          fi
-          git cat-file -e "HEAD:.github/workflows/sync-career-ops.yml"
+          git add -A --pathspec-from-file="$RUNNER_TEMP/conflicts.bin" --pathspec-file-nul
+          git commit --no-edit -m "chore: merge career-ops v${REMOTE} (conflicts unresolved)"
+          tr '\0' '\n' < "$RUNNER_TEMP/conflicts.bin" > "$RUNNER_TEMP/conflicts.txt"
+          echo "conflicted=true" >> "$GITHUB_OUTPUT"
+          echo "conflicted files:"
+          cat "$RUNNER_TEMP/conflicts.txt"
 
       - name: Open a pull request
-        if: steps.check.outputs.status == 'update-available'
+        if: steps.merge.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.CAREER_OPS_SYNC_TOKEN }}
           LOCAL: ${{ steps.check.outputs.local }}
           REMOTE: ${{ steps.check.outputs.remote }}
+          BRANCH: ${{ steps.open.outputs.branch }}
+          CONFLICTED: ${{ steps.merge.outputs.conflicted }}
         run: |
           set -euo pipefail
-          git fetch origin main
-          if [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ]; then
-            echo "apply produced no new commit"
-            exit 0
+          git push --force origin "HEAD:${BRANCH}"
+          body="$RUNNER_TEMP/pr-body.md"
+          {
+            echo "Merges the published career-ops release v${LOCAL} → v${REMOTE} with git. Upstream changes are combined with this fork's own edits; files only this fork has are untouched."
+            echo
+            echo "Merge with **Create a merge commit** so upstream's history stays in \`main\`."
+          } > "$body"
+          if [ "$CONFLICTED" = "true" ]; then
+            {
+              echo
+              echo "## Conflicts to resolve"
+              echo
+              echo "Upstream and this fork changed the same lines in these files. They are committed with \`<<<<<<<\` / \`>>>>>>>\` markers:"
+              echo
+              sed 's/.*/- `&`/' "$RUNNER_TEMP/conflicts.txt"
+              echo
+              echo '```bash'
+              echo "git fetch origin && git checkout ${BRANCH}"
+              echo "# edit each file above: keep, combine, or drop each side, and delete the markers"
+              echo "git commit -am \"resolve career-ops v${REMOTE} merge conflicts\" && git push"
+              echo '```'
+              echo
+              echo "Then mark this pull request ready for review."
+            } >> "$body"
+            gh pr create --draft --base main --head "$BRANCH" \
+              --title "chore: sync career-ops to v${REMOTE} (conflicts)" --body-file "$body"
+          else
+            gh pr create --base main --head "$BRANCH" \
+              --title "chore: sync career-ops to v${REMOTE}" --body-file "$body"
           fi
-          branch="chore/career-ops-v${REMOTE}"
-          git checkout -B "$branch"
-          git push --force-with-lease origin "HEAD:${branch}"
-          existing="$(gh pr list --base main --head "$branch" --state open --json number --jq '.[0].number // empty')"
-          if [ -n "$existing" ]; then
-            echo "pull request #${existing} already open for ${branch}"
-            exit 0
-          fi
-          gh pr create \
-            --base main \
-            --head "$branch" \
-            --title "chore: sync career-ops to v${REMOTE}" \
-            --body "Applies the published career-ops release v${LOCAL} → v${REMOTE}. Every tracked path matches the release except the user layer (CV, profile, tracker, reports, and the rest of DATA_CONTRACT.md). Files listed in config/local-paths.txt are left untouched."
