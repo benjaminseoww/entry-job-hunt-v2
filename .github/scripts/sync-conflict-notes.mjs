@@ -145,7 +145,21 @@ function readList(path) {
   return readFileSync(path, 'utf8').split('\n').filter(Boolean);
 }
 
+const USAGE = `Usage:
+  node .github/scripts/sync-conflict-notes.mjs --before <paths> --after <paths> --disposition <name> [--agent-report <file>] [--copilot-log <file>]
+
+  --before <paths>         unmerged paths before the user-layer restore
+  --after <paths>          unmerged paths after that restore
+  --disposition <name>     kept, discarded, partial, failed, not-run, or user-only
+  --agent-report <file>    Copilot report to quote for paths still conflicted
+  --copilot-log <file>     session events.jsonl; the model is read from the events
+  --help, -h               print this and exit`;
+
 if (isMainModule(import.meta.url)) {
+  if (process.argv.slice(2).some((flag) => flag === '--help' || flag === '-h')) {
+    console.log(USAGE);
+    process.exit(0);
+  }
   const reportPath = arg('--agent-report');
   const logPath = arg('--copilot-log');
   process.stdout.write(buildConflictNotes({
