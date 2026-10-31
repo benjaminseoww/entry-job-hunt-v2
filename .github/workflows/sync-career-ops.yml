@@ -9,8 +9,10 @@ name: Sync career-ops releases
 # upstream's history, and every later sync would conflict again on changes
 # this fork already took.
 #
-# When the merge conflicts, user-layer paths are put back to this fork and
-# Copilot CLI gets one try at the rest, following
+# When the merge conflicts, user-layer paths are put back to this fork. A
+# GitHub workflow that has stayed disabled on this fork is put back too, so
+# the release cannot re-enable it and conflict markers never land in that
+# file. Copilot CLI gets one try at the rest, following
 # .github/skills/resolve-sync-conflicts/SKILL.md. The pull request lists
 # every conflicted path and how that try handled it. A try that leaves
 # markers, fails lint or tests, or does not run stays a draft with the
