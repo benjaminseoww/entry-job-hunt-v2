@@ -7,17 +7,25 @@
 import { readdirSync, readFileSync, existsSync, statSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import * as yaml from 'js-yaml';
+import { loadYaml } from './lib/yaml-document.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 import { decodeEntities } from './providers/_html-entities.mjs';
-import { getCareerOpsRoot } from './path-resolver.mjs';
+import { getProfilePath } from './path-resolver.mjs';
+import {
+  parseMeta, PARTIAL_SECTIONS, declaredSections, checkDeclaredSections,
+} from './lib/template-manifest.mjs';
+
+// The manifest block and the section vocabulary live in lib/template-manifest.mjs
+// so build-cv-html.mjs can share them without importing this module (and the
+// js-yaml it pulls in for profile defaults). Re-exported here because this is
+// where callers have always found parseMeta.
+export { parseMeta, PARTIAL_SECTIONS, declaredSections, checkDeclaredSections };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // templates/ is System Layer (code root); config/profile.yml is User Layer and
 // follows the data root. CAREER_OPS_PROFILE still wins over both.
 const DEFAULT_TEMPLATES_DIR = resolve(__dirname, 'templates');
-const DEFAULT_PROFILE_PATH =
-  process.env.CAREER_OPS_PROFILE || resolve(getCareerOpsRoot(), 'config', 'profile.yml');
+const DEFAULT_PROFILE_PATH = getProfilePath();
 
 export const KINDS = {
   cv: {
@@ -64,23 +72,6 @@ function parseFilename(prefix, file) {
   const m = file.match(new RegExp(`^${prefix}(?:\\.([a-z0-9-]+))?\\.(html|tex)$`));
   if (!m) return null;
   return { name: m[1] || 'standard', format: m[2] };
-}
-
-export function parseMeta(path) {
-  let text;
-  try {
-    text = readFileSync(path, 'utf-8');
-  } catch {
-    return {};
-  }
-  const block = text.match(/<!--\s*career-ops-template\s*([\s\S]*?)-->/);
-  if (!block) return {};
-  const meta = {};
-  for (const line of block[1].split(/\r?\n/)) {
-    const kv = line.match(/^\s*([a-zA-Z_]+)\s*:\s*(.+?)\s*$/);
-    if (kv) meta[kv[1].toLowerCase()] = kv[2];
-  }
-  return meta;
 }
 
 // Build the entry a discovered template file contributes.
@@ -240,7 +231,7 @@ export function validateTemplate(path, kind) {
 const DEFAULT_ATS_RULES_PATH = resolve(__dirname, 'templates', 'ats-rules.yml');
 
 export function loadAtsRules(path = DEFAULT_ATS_RULES_PATH) {
-  const doc = yaml.load(readFileSync(path, 'utf-8')) || {};
+  const doc = loadYaml(readFileSync(path, 'utf-8')) || {};
   // A missing `rules:` key, a wrongly-typed one and an empty list used to
   // coerce to [], and atsLint then walked zero rules and reported ok. Every
   // other way of breaking this file already fails loudly, so a config that
@@ -599,7 +590,7 @@ export function loadProfileDefault(kind, { profilePath = DEFAULT_PROFILE_PATH, s
   if (!existsSync(profilePath)) return null;
   let doc;
   try {
-    doc = yaml.load(readFileSync(profilePath, 'utf-8')) || {};
+    doc = loadYaml(readFileSync(profilePath, 'utf-8')) || {};
   } catch (err) {
     if (strict) {
       throw new Error(
@@ -646,13 +637,30 @@ export function resolveTemplate(kind, name, opts = {}) {
   }
   const path = entry.path;
   if (format === 'html') {
+    // Name the file that is actually short, not the flat filename it would
+    // have had. For a pack these differ, and the flat name points at nothing.
+    const where = entry.pack ? `${entry.pack}/${fileFor(chosen)}` : fileFor(chosen);
     const v = validateTemplate(path, kind);
     if (!v.ok) {
-      // Name the file that is actually short, not the flat filename it would
-      // have had. For a pack these differ, and the flat name points at nothing.
-      const where = entry.pack ? `${entry.pack}/${fileFor(chosen)}` : fileFor(chosen);
       throw new Error(
         `Template ${where} missing required placeholders: ${v.missing.map((m) => `{{${m}}}`).join(', ')}`
+      );
+    }
+    // A template that declares its sections must ship them (#3852). Checked
+    // at resolve for the same reason the placeholders are: every by-name
+    // caller lands here, and a name that resolves and then fails to render is
+    // the failure that passes review because the demo path works.
+    let sections;
+    try {
+      sections = checkDeclaredSections(path);
+    } catch (err) {
+      throw new Error(`Template ${where}: ${err.message}`);
+    }
+    if (sections.missing.length) {
+      throw new Error(
+        `Template ${where} declares sections it does not ship: `
+          + sections.missing.map((n) => `sections/${n}.html`).join(', ')
+          + '. A declared section must have a partial — add the file, or drop it from the manifest\'s "sections" list.'
       );
     }
   }
