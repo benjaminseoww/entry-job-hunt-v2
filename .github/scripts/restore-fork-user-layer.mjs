@@ -4,9 +4,7 @@
 // The caller passes the fork SHA (HEAD before `git merge`).
 
 import { execFileSync } from 'node:child_process';
-import { realpathSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isMainModule } from '../../lib/is-main-module.mjs';
 import { effectiveUserPaths } from '../../update-system.mjs';
 
 /**
@@ -93,9 +91,7 @@ export function restoreForkUserLayer(root, forkSha, env = process.env) {
   return { restored, removed };
 }
 
-const isCli = process.argv[1]
-  && realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
-if (isCli) {
+if (isMainModule(import.meta.url)) {
   const forkSha = process.argv[2];
   if (!forkSha) {
     console.error('usage: restore-fork-user-layer.mjs <fork-sha>');

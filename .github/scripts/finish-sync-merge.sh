@@ -2,8 +2,9 @@
 # Merge one published career-ops release tag into the branch this run checked
 # out (FORK_BRANCH). A schedule run checks out main. A manual run checks out
 # the branch selected in workflow_dispatch.
-# Keep user-layer paths as this fork has them, and ask Copilot once to
-# combine the rest.
+# Keep user-layer paths as this fork has them. Then put back every GitHub
+# workflow that has stayed disabled on this fork, so conflict markers never
+# land in that YAML. Ask Copilot once to combine whatever conflicts remain.
 # Writes $RUNNER_TEMP/conflict-notes.md when any path conflicted, and sets
 # GITHUB_OUTPUT conflicted=true|false.
 
@@ -49,6 +50,10 @@ fi
 
 node .github/scripts/restore-fork-user-layer.mjs "$fork_sha" > "$RUNNER_TEMP/user-layer.json"
 echo "user-layer restore: $(cat "$RUNNER_TEMP/user-layer.json")"
+node .github/scripts/restore-disabled-workflows.mjs "$fork_sha" > "$RUNNER_TEMP/disabled-workflows.json"
+echo "disabled-workflow restore: $(cat "$RUNNER_TEMP/disabled-workflows.json")"
+node .github/scripts/restore-disabled-workflows.mjs --strip-list \
+  "$RUNNER_TEMP/disabled-workflows.json" "$RUNNER_TEMP/conflicts-before.txt"
 
 write_notes() {
   local disposition="$1"
@@ -74,7 +79,9 @@ finish_merge() {
 
 if [ "$merge_ok" = true ]; then
   if ! git diff --cached --quiet; then
-    git commit -m "chore: keep this fork's user-layer files"
+    msg="$(node .github/scripts/restore-disabled-workflows.mjs --followup-message \
+      "$RUNNER_TEMP/user-layer.json" "$RUNNER_TEMP/disabled-workflows.json")"
+    git commit -m "$msg"
   fi
   echo "conflicted=false" >> "$GITHUB_OUTPUT"
   exit 0
@@ -84,12 +91,14 @@ git diff --name-only --diff-filter=U > "$RUNNER_TEMP/conflicts-after.txt" || tru
 
 if [ ! -s "$RUNNER_TEMP/conflicts-after.txt" ]; then
   finish_merge "chore: merge career-ops v${REMOTE} into entry-job-hunt-v2 ${FORK_BRANCH}"
-  write_notes user-only
+  if [ -s "$RUNNER_TEMP/conflicts-before.txt" ]; then
+    write_notes user-only
+  fi
   echo "conflicted=false" >> "$GITHUB_OUTPUT"
   exit 0
 fi
 
-echo "conflicted files after user-layer restore:"
+echo "conflicted files left for Copilot:"
 cat "$RUNNER_TEMP/conflicts-after.txt"
 
 # Exact pre-agent index and worktree, so a bad try can be put back.

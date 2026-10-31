@@ -4,9 +4,8 @@
 // described here. Every path still conflicted after that restore is quoted
 // from the agent's report, or marked unknown when the report skips it.
 
-import { readFileSync, realpathSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
+import { isMainModule } from '../../lib/is-main-module.mjs';
 
 const INTRO = {
   kept: 'Copilot made one try. That try is on this branch. Lint and tests passed.',
@@ -98,10 +97,10 @@ export function parseAgentReport(report) {
  * @returns {string}
  */
 export function buildConflictNotes({ beforeFiles, afterFiles, agentReport = '', copilotLog = '', disposition }) {
-  const intro = INTRO[disposition];
-  if (!intro) throw new Error(`unknown disposition: ${disposition}`);
   const after = new Set(afterFiles.filter(Boolean));
   const userLayer = beforeFiles.filter((file) => file && !after.has(file));
+  const intro = INTRO[disposition];
+  if (!intro) throw new Error(`unknown disposition: ${disposition}`);
   const agent = parseAgentReport(agentReport);
   const lines = ['## Merge conflicts', '', intro, ''];
   if (disposition !== 'not-run' && disposition !== 'user-only') {
@@ -146,9 +145,7 @@ function readList(path) {
   return readFileSync(path, 'utf8').split('\n').filter(Boolean);
 }
 
-const isCli = process.argv[1]
-  && realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
-if (isCli) {
+if (isMainModule(import.meta.url)) {
   const reportPath = arg('--agent-report');
   const logPath = arg('--copilot-log');
   process.stdout.write(buildConflictNotes({
