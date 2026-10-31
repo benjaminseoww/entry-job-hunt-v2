@@ -1,18 +1,22 @@
 name: Sync career-ops releases
 
-# Merges each published career-ops-hq release into this fork with git, so
-# upstream changes and this fork's own edits are combined instead of one
-# replacing the other. The release channel is the one update-system.mjs
-# installs: merges to upstream main that have not been released yet are left
-# alone.
+# Merges a published career-ops-hq release tag into benjaminseoww/entry-job-hunt-v2
+# main. The pull request always targets that main. Commits on career-ops main
+# that are not in a release yet are left alone.
 #
 # Merge the sync pull request with a merge commit. A squash would drop
 # upstream's history, and every later sync would conflict again on changes
 # this fork already took.
 #
-# When the merge conflicts, the branch carries the conflict markers and the
-# pull request opens as a draft listing the files. An open sync pull request
-# is never force-pushed, so a resolution in progress on that branch is safe.
+# When the merge conflicts, user-layer paths are put back to this fork and
+# Copilot CLI gets one try at the rest, following
+# .github/skills/resolve-sync-conflicts/SKILL.md. The pull request lists
+# every conflicted path and how that try handled it. A try that leaves
+# markers, fails lint or tests, or does not run stays a draft with the
+# markers. Set the COPILOT_GITHUB_TOKEN secret (fine-grained PAT, account
+# permission Copilot Requests: Read) or the try is skipped.
+# An open sync pull request is never force-pushed, so a resolution in
+# progress on that branch is safe.
 
 on:
   schedule:
@@ -30,9 +34,14 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    env:
+      FORK_REPO: benjaminseoww/entry-job-hunt-v2
+      FORK_BRANCH: main
+      UPSTREAM_REPO: career-ops-hq/career-ops
     steps:
       - uses: actions/checkout@v7
         with:
+          repository: benjaminseoww/entry-job-hunt-v2
           ref: main
           fetch-depth: 0
           token: ${{ secrets.CAREER_OPS_SYNC_TOKEN }}
@@ -72,7 +81,7 @@ jobs:
           set -euo pipefail
           branch="chore/career-ops-v${REMOTE}"
           echo "branch=${branch}" >> "$GITHUB_OUTPUT"
-          existing="$(gh pr list --base main --head "$branch" --state open --json number --jq '.[0].number // empty')"
+          existing="$(gh pr list --repo "$FORK_REPO" --base "$FORK_BRANCH" --head "$branch" --state open --json number --jq '.[0].number // empty')"
           if [ -n "$existing" ]; then
             echo "pull request #${existing} already open for ${branch}"
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -84,28 +93,8 @@ jobs:
         env:
           REMOTE: ${{ steps.check.outputs.remote }}
           BRANCH: ${{ steps.open.outputs.branch }}
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          tag="career-ops-v${REMOTE}"
-          git fetch --no-tags https://github.com/career-ops-hq/career-ops.git "+refs/tags/${tag}:refs/tags/${tag}"
-          git checkout -B "$BRANCH"
-          if git merge --no-ff --no-edit -m "chore: merge career-ops v${REMOTE}" "$tag"; then
-            echo "conflicted=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          git diff --name-only --diff-filter=U -z > "$RUNNER_TEMP/conflicts.bin"
-          if [ ! -s "$RUNNER_TEMP/conflicts.bin" ]; then
-            echo "git merge failed without leaving conflicts"
-            exit 1
-          fi
-          git add -A --pathspec-from-file="$RUNNER_TEMP/conflicts.bin" --pathspec-file-nul
-          git commit --no-edit -m "chore: merge career-ops v${REMOTE} (conflicts unresolved)"
-          tr '\0' '\n' < "$RUNNER_TEMP/conflicts.bin" > "$RUNNER_TEMP/conflicts.txt"
-          echo "conflicted=true" >> "$GITHUB_OUTPUT"
-          echo "conflicted files:"
-          cat "$RUNNER_TEMP/conflicts.txt"
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: bash .github/scripts/finish-sync-merge.sh
 
       - name: Open a pull request
         if: steps.merge.outcome == 'success'
@@ -120,30 +109,29 @@ jobs:
           git push --force origin "HEAD:${BRANCH}"
           body="$RUNNER_TEMP/pr-body.md"
           {
-            echo "Merges the published career-ops release v${LOCAL} → v${REMOTE} with git. Upstream changes are combined with this fork's own edits; files only this fork has are untouched."
+            echo "Merges the published career-ops release v${LOCAL} → v${REMOTE} into \`benjaminseoww/entry-job-hunt-v2\` \`${FORK_BRANCH}\`. The release tag is compared with that branch. Your own edits stay; files only this fork has are untouched."
             echo
-            echo "Merge with **Create a merge commit** so upstream's history stays in \`main\`."
+            echo "Merge with **Create a merge commit** so the release history stays in entry-job-hunt-v2 \`${FORK_BRANCH}\`."
           } > "$body"
+          if [ -f "$RUNNER_TEMP/conflict-notes.md" ]; then
+            echo >> "$body"
+            cat "$RUNNER_TEMP/conflict-notes.md" >> "$body"
+          fi
           if [ "$CONFLICTED" = "true" ]; then
             {
               echo
-              echo "## Conflicts to resolve"
-              echo
-              echo "Upstream and this fork changed the same lines in these files. They are committed with \`<<<<<<<\` / \`>>>>>>>\` markers:"
-              echo
-              sed 's/.*/- `&`/' "$RUNNER_TEMP/conflicts.txt"
+              echo "Markers still on the branch are the files marked not handled above. Edit those, delete the markers, then:"
               echo
               echo '```bash'
               echo "git fetch origin && git checkout ${BRANCH}"
-              echo "# edit each file above: keep, combine, or drop each side, and delete the markers"
               echo "git commit -am \"resolve career-ops v${REMOTE} merge conflicts\" && git push"
               echo '```'
               echo
               echo "Then mark this pull request ready for review."
             } >> "$body"
-            gh pr create --draft --base main --head "$BRANCH" \
-              --title "chore: sync career-ops to v${REMOTE} (conflicts)" --body-file "$body"
+            gh pr create --repo "$FORK_REPO" --draft --base "$FORK_BRANCH" --head "$BRANCH" \
+              --title "chore: sync career-ops v${REMOTE} into entry-job-hunt-v2 main (conflicts)" --body-file "$body"
           else
-            gh pr create --base main --head "$BRANCH" \
-              --title "chore: sync career-ops to v${REMOTE}" --body-file "$body"
+            gh pr create --repo "$FORK_REPO" --base "$FORK_BRANCH" --head "$BRANCH" \
+              --title "chore: sync career-ops v${REMOTE} into entry-job-hunt-v2 main" --body-file "$body"
           fi
