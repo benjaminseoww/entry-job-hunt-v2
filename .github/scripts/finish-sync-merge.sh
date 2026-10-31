@@ -159,7 +159,10 @@ else
   prompt="$(cat <<EOF
 Read and follow .github/skills/resolve-sync-conflicts/SKILL.md before you edit anything.
 
-You are on a sync branch started from entry-job-hunt-v2 ${FORK_BRANCH}. HEAD is that fork. The other side of each conflict is the career-ops release ${tag}. Edit only the files listed below. Do not commit, push, or stage. Write sync-conflict-report.md in the repository root and stop.
+You are on a sync branch started from entry-job-hunt-v2 ${FORK_BRANCH}. HEAD is that fork. The other side of each conflict is the career-ops release ${tag}. Do not commit, push, or stage. Write sync-conflict-report.md in the repository root and stop.
+
+Before any edit, run: git grep -n -e '<<<<<<< HEAD'
+A line containing <<<<<<< HEAD is a merge conflict. Write every hit (path and line) under ## Conflicts found in sync-conflict-report.md. Ignore .github/skills/resolve-sync-conflicts/SKILL.md. Do not edit a conflicted file until that list is written. Then resolve one file at a time, in that list's order, and re-run the search on the file you just edited before starting the next. For each file, only resolve the conflict and keep the functionality already on both sides. Do not add an optimization, refactor, rename, or any other change. A file below that the search does not find is already clear. A hit this list omits is still a conflict: resolve it too, unless the skill says the path is user-layer.
 
 Conflicted files:
 $(sed 's/^/- /' "$RUNNER_TEMP/conflicts-after.txt")
@@ -167,7 +170,7 @@ EOF
 )"
   set +e
   COPILOT_HOME="$copilot_home" copilot --autopilot --max-autopilot-continues 12 --no-ask-user \
-    --allow-tool='write,shell(git:diff*),shell(git:status),shell(git:show*),shell(git:log*)' \
+    --allow-tool='write,shell(git:diff*),shell(git:status),shell(git:show*),shell(git:log*),shell(git:grep*)' \
     -p "$prompt"
   copilot_status=$?
   set -e
