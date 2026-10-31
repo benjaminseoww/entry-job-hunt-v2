@@ -15,8 +15,9 @@ name: Sync career-ops releases
 # file. Copilot CLI gets one try at the rest, following
 # .github/skills/resolve-sync-conflicts/SKILL.md. The pull request lists
 # every conflicted path and how that try handled it. A try that leaves
-# markers, fails lint or tests, or does not run stays a draft with the
-# markers. Set the COPILOT_GITHUB_TOKEN secret (fine-grained PAT, account
+# markers or does not run stays a draft with the markers. This job does
+# not run the test suite. The pull request Tests workflow reports
+# failures, and a person fixes those. Set the COPILOT_GITHUB_TOKEN secret (fine-grained PAT, account
 # permission Copilot Requests: Read) or the try is skipped.
 # An open sync pull request is never force-pushed, so a resolution in
 # progress on that branch is safe.

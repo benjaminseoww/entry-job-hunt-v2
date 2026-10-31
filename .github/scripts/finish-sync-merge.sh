@@ -162,7 +162,7 @@ Read and follow .github/skills/resolve-sync-conflicts/SKILL.md before you edit a
 You are on a sync branch started from entry-job-hunt-v2 ${FORK_BRANCH}. HEAD is that fork. The other side of each conflict is the career-ops release ${tag}. Do not commit, push, or stage. Write sync-conflict-report.md in the repository root and stop.
 
 Before any edit, run: git grep -n -e '<<<<<<< HEAD'
-A line containing <<<<<<< HEAD is a merge conflict. Write every hit (path and line) under ## Conflicts found in sync-conflict-report.md. Ignore .github/skills/resolve-sync-conflicts/SKILL.md. Do not edit a conflicted file until that list is written. Then resolve one file at a time, in that list's order, and re-run the search on the file you just edited before starting the next. For each file, remove every conflict marker and keep the functionality already on both sides. Do not leave a hunk marked because the two sides look incompatible. Do not add an optimization, refactor, rename, or any other change. The workflow runs the tests after you finish and discards this try if they fail. A file below that the search does not find is already clear. A hit this list omits is still a conflict: resolve it too, unless the skill says the path is user-layer.
+A line containing <<<<<<< HEAD is a merge conflict. Write every hit (path and line) under ## Conflicts found in sync-conflict-report.md. Ignore .github/skills/resolve-sync-conflicts/SKILL.md. Do not edit a conflicted file until that list is written. Then resolve one file at a time, in that list's order, and re-run the search on the file you just edited before starting the next. For each file, remove every conflict marker and keep the functionality already on both sides. Do not leave a hunk marked because the two sides look incompatible. Do not add an optimization, refactor, rename, or any other change. Do not run the tests. This sync keeps your try. The pull request's Tests workflow reports failures, and a person fixes those. A file below that the search does not find is already clear. A hit this list omits is still a conflict: resolve it too, unless the skill says the path is user-layer.
 
 Conflicted files:
 $(sed 's/^/- /' "$RUNNER_TEMP/conflicts-after.txt")
@@ -198,20 +198,8 @@ EOF
   fi
 fi
 
-if [ "$disposition" = kept ]; then
-  overlay_agent_files
-  npm install --ignore-scripts
-  tests_ok=true
-  npm run lint || tests_ok=false
-  if [ "$tests_ok" = true ]; then
-    node test-all.mjs --quick || tests_ok=false
-  fi
-  if [ "$tests_ok" = false ]; then
-    echo "lint or tests failed; discarding Copilot's edits"
-    restore_pre_agent
-    disposition=discarded
-  fi
-elif [ "$disposition" = partial ]; then
+# Keep the try. The pull request's Tests workflow reports failures.
+if [ "$disposition" = kept ] || [ "$disposition" = partial ]; then
   overlay_agent_files
 fi
 

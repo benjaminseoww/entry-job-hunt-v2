@@ -8,8 +8,7 @@ import { readFileSync } from 'node:fs';
 import { isMainModule } from '../../lib/is-main-module.mjs';
 
 const INTRO = {
-  kept: 'Copilot made one try. That try is on this branch. Lint and tests passed.',
-  discarded: 'Copilot made one try. That try is not on this branch. Lint or tests failed, so the original conflict markers were restored.',
+  kept: 'Copilot made one try. That try is on this branch. The pull request Tests workflow reports any failures.',
   partial: 'Copilot made one try. That try is on this branch. At least one hunk is still marked, so this pull request is a draft.',
   failed: 'Copilot made one try and exited with an error. Its edits were not kept. The original conflict markers are on this branch.',
   'not-run': 'Copilot did not run. Conflict markers are still on this branch.',
@@ -93,7 +92,7 @@ export function parseAgentReport(report) {
  * @param {string[]} input.afterFiles - Unmerged paths after that restore.
  * @param {string} [input.agentReport]
  * @param {string} [input.copilotLog] - Copilot session events.jsonl. The model is read from the events.
- * @param {string} input.disposition - kept | discarded | partial | failed | not-run | user-only
+ * @param {string} input.disposition - kept | partial | failed | not-run | user-only
  * @returns {string}
  */
 export function buildConflictNotes({ beforeFiles, afterFiles, agentReport = '', copilotLog = '', disposition }) {

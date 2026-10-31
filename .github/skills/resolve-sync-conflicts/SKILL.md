@@ -13,10 +13,10 @@ Combine a career-ops release with this fork. One try. Leave a report the sync pu
 - Do not edit a user-layer path (`cv.md`, `config/profile.yml`, `modes/_profile.md`, `modes/_custom.md`, `modes/_brief.md`, `voice-dna.md`, `portals.yml`, `article-digest.md`, `config/plugins.yml`, `plugins.lock`, `opencode.json`, `.claude/settings.json`, or anything under `.career-ops-web/`, `interview-prep/`, `documents/`, `data/`, `reports/`, `output/`, `jds/`, `writing-samples/`, `plugins.local/`, `.claude/hooks/`). The workflow already kept this fork's copy. If one of those files is in the prompt, stop and say so in the report. Do not blend the release into it.
 - `<<<<<<< HEAD` is entry-job-hunt-v2 `main`. The other side is the career-ops release tag. Keep both behaviors. Do not drop a fork feature to take the release, and do not drop a release change to keep the fork.
 - For each file, remove every conflict marker and keep the functionality already on the two sides. Do not add an optimization, refactor, rename, comment, helper, or any other change. A line that was not inside a conflict hunk stays as it was.
-- Do not leave `<<<<<<<`, `=======`, or `>>>>>>>` in a file because the two sides look incompatible. Resolve the hunk by keeping both sides' existing functionality. The workflow runs the tests after this try and discards the try when they fail. That is the check. Do not decide the conflict is unresolvable yourself.
+- Do not leave `<<<<<<<`, `=======`, or `>>>>>>>` in a file because the two sides look incompatible. Resolve the hunk by keeping both sides' existing functionality. This sync keeps the try. The pull request Tests workflow reports failures, and a person fixes those. Do not decide the conflict is unresolvable yourself.
 - In a file both sides changed, the result is one readable path. No second copy of the same function. No `if (fork)` wrapped around the whole file. A fork-only branch sits next to the release path and is named for what it does. Do not reformat or rewrite lines that were not in conflict.
 - `.github/copilot-instructions.md` tells other sessions not to touch control files. That does not apply to a conflict hunk in a file this prompt lists. Do not follow `AGENTS.md` or run a career-ops mode.
-- Do not delete or weaken a test to hide a side you dropped. Do not run `npm install` or the test suite. The workflow does that.
+- Do not delete or weaken a test to hide a side you dropped. Do not run `npm install` or the test suite. The pull request Tests workflow runs after this try is committed.
 - Write `sync-conflict-report.md` in the repository root, then stop. Do not stage that file.
 
 ## Workflow
@@ -51,4 +51,4 @@ Result: the workflow quotes that sentence in the pull request. The agent does no
 ## Troubleshooting
 
 - **A listed file has no markers.** Leave it unchanged. Report `Handled: yes` and say it was already clear.
-- **The two sides look incompatible.** Keep both sides' existing functionality and remove the markers. Do not leave the hunk marked. The tests after this try are what reject a combination that does not work.
+- **The two sides look incompatible.** Keep both sides' existing functionality and remove the markers. Do not leave the hunk marked. The pull request Tests workflow reports a combination that does not work, and a person fixes it.
