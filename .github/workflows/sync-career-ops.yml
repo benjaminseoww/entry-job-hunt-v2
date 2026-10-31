@@ -1,12 +1,23 @@
 name: Sync career-ops releases
 
-# Applies published career-ops-hq releases onto this fork with
-# update-system.mjs. The release channel is the one apply() installs:
-# merges that have not been released yet are left alone.
+# Merges a published career-ops-hq release tag into the branch that triggered
+# this run. A schedule run uses main. A workflow_dispatch run uses the branch
+# you selected, and the pull request targets that same branch. Commits on
+# career-ops main that are not in a release yet are left alone.
 #
-# Never pass --force. A default apply keeps system files this fork has
-# changed (including this workflow) and skips upstream changes to them.
-# --force would replace those files with the upstream copy.
+# Merge the sync pull request with a merge commit. A squash would drop
+# upstream's history, and every later sync would conflict again on changes
+# this fork already took.
+#
+# When the merge conflicts, user-layer paths are put back to this fork and
+# Copilot CLI gets one try at the rest, following
+# .github/skills/resolve-sync-conflicts/SKILL.md. The pull request lists
+# every conflicted path and how that try handled it. A try that leaves
+# markers, fails lint or tests, or does not run stays a draft with the
+# markers. Set the COPILOT_GITHUB_TOKEN secret (fine-grained PAT, account
+# permission Copilot Requests: Read) or the try is skipped.
+# An open sync pull request is never force-pushed, so a resolution in
+# progress on that branch is safe.
 
 on:
   schedule:
@@ -24,10 +35,15 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    env:
+      FORK_REPO: benjaminseoww/entry-job-hunt-v2
+      FORK_BRANCH: ${{ github.ref_name }}
+      UPSTREAM_REPO: career-ops-hq/career-ops
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: main
+          repository: benjaminseoww/entry-job-hunt-v2
+          ref: ${{ github.ref }}
           fetch-depth: 0
           token: ${{ secrets.CAREER_OPS_SYNC_TOKEN }}
           persist-credentials: true
@@ -56,61 +72,67 @@ jobs:
           echo "update check status: ${{ steps.check.outputs.status }}"
           exit 1
 
-      - name: Apply the release
+      - name: Skip when a sync pull request is already open
+        id: open
         if: steps.check.outputs.status == 'update-available'
         env:
-          CAREER_OPS_NPM_INSTALL_TIMEOUT_MS: '300000'
-          CAREER_OPS_PLAYWRIGHT_INSTALL_TIMEOUT_MS: '300000'
-          CAREER_OPS_GIT_FETCH_TIMEOUT_MS: '300000'
+          GH_TOKEN: ${{ secrets.CAREER_OPS_SYNC_TOKEN }}
+          REMOTE: ${{ steps.check.outputs.remote }}
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          node update-system.mjs apply --confirm
-          # This replaces this fork's web/ with the release copy.
-          if git cat-file -e FETCH_HEAD:web >/dev/null 2>&1; then
-            git checkout FETCH_HEAD -- web
-            comm -23 \
-              <(git ls-files -- web | LC_ALL=C sort) \
-              <(git ls-tree -r --name-only FETCH_HEAD -- web | LC_ALL=C sort) \
-              > "$RUNNER_TEMP/web-removed.txt"
-            if [ -s "$RUNNER_TEMP/web-removed.txt" ]; then
-              git rm -q --pathspec-from-file="$RUNNER_TEMP/web-removed.txt" --
-            fi
-            if ! git diff --cached --quiet -- web; then
-              if git merge-base --is-ancestor HEAD origin/main; then
-                version="$(tr -d '[:space:]' < VERSION)"
-                git commit -m "chore: auto-update system files to v${version}"
-              else
-                git commit --amend --no-edit
-              fi
-            fi
+          branch="chore/career-ops-v${REMOTE}"
+          echo "branch=${branch}" >> "$GITHUB_OUTPUT"
+          existing="$(gh pr list --repo "$FORK_REPO" --base "$FORK_BRANCH" --head "$branch" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            echo "pull request #${existing} already open for ${branch}"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
-          git cat-file -e "HEAD:.github/workflows/sync-career-ops.yml"
+
+      - name: Merge the release
+        id: merge
+        if: steps.check.outputs.status == 'update-available' && steps.open.outputs.skip != 'true'
+        env:
+          REMOTE: ${{ steps.check.outputs.remote }}
+          BRANCH: ${{ steps.open.outputs.branch }}
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: bash .github/scripts/finish-sync-merge.sh
 
       - name: Open a pull request
-        if: steps.check.outputs.status == 'update-available'
+        if: steps.merge.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.CAREER_OPS_SYNC_TOKEN }}
           LOCAL: ${{ steps.check.outputs.local }}
           REMOTE: ${{ steps.check.outputs.remote }}
+          BRANCH: ${{ steps.open.outputs.branch }}
+          CONFLICTED: ${{ steps.merge.outputs.conflicted }}
         run: |
           set -euo pipefail
-          git fetch origin main
-          if [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ]; then
-            echo "apply produced no new commit"
-            exit 0
+          git push --force origin "${BRANCH}:${BRANCH}"
+          body="$RUNNER_TEMP/pr-body.md"
+          {
+            echo "Merges the published career-ops release v${LOCAL} → v${REMOTE} into \`benjaminseoww/entry-job-hunt-v2\` \`${FORK_BRANCH}\`. The release tag is compared with that branch. Your own edits stay; files only this fork has are untouched."
+            echo
+            echo "Merge with **Create a merge commit** so the release history stays in entry-job-hunt-v2 \`${FORK_BRANCH}\`."
+          } > "$body"
+          if [ -f "$RUNNER_TEMP/conflict-notes.md" ]; then
+            echo >> "$body"
+            cat "$RUNNER_TEMP/conflict-notes.md" >> "$body"
           fi
-          branch="chore/career-ops-v${REMOTE}"
-          git checkout -B "$branch"
-          git push --force-with-lease origin "HEAD:${branch}"
-          existing="$(gh pr list --base main --head "$branch" --state open --json number --jq '.[0].number // empty')"
-          if [ -n "$existing" ]; then
-            echo "pull request #${existing} already open for ${branch}"
-            exit 0
+          if [ "$CONFLICTED" = "true" ]; then
+            {
+              echo
+              echo "Markers still on the branch are the files marked not handled above. Edit those, delete the markers, then:"
+              echo
+              echo '```bash'
+              echo "git fetch origin && git checkout ${BRANCH}"
+              echo "git commit -am \"resolve career-ops v${REMOTE} merge conflicts\" && git push"
+              echo '```'
+              echo
+              echo "Then mark this pull request ready for review."
+            } >> "$body"
+            gh pr create --repo "$FORK_REPO" --draft --base "$FORK_BRANCH" --head "$BRANCH" \
+              --title "chore: sync career-ops v${REMOTE} into entry-job-hunt-v2 ${FORK_BRANCH} (conflicts)" --body-file "$body"
+          else
+            gh pr create --repo "$FORK_REPO" --base "$FORK_BRANCH" --head "$BRANCH" \
+              --title "chore: sync career-ops v${REMOTE} into entry-job-hunt-v2 ${FORK_BRANCH}" --body-file "$body"
           fi
-          gh pr create \
-            --base main \
-            --head "$branch" \
-            --title "chore: sync career-ops to v${REMOTE}" \
-            --body "Applies the published career-ops release v${LOCAL} → v${REMOTE}. System files and web/. CV, profile, tracker, reports, and .career-ops-web/ are left untouched."

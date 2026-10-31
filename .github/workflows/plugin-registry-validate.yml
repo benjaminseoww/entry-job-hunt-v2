@@ -1,7 +1,7 @@
 name: 'Plugin registry validate'
 
 # Fork: a career-ops release sync is not a plugin registration. The
-# one-plugin-per-PR step below skips those commits. 
+# one-plugin-per-PR step below skips those pull requests. 
 
 # Runs on PRs that touch the curated plugin registry. Uses `pull_request` (NOT
 # pull_request_target), read-only permissions, and NO secrets — so cloning +
@@ -49,13 +49,14 @@ jobs:
         # anything expanded inside run: is literal shell code (template injection).
         env:
           BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           # Make origin/$BASE_REF resolvable (checkout of a PR merge ref does not
           # create the base remote-tracking branch on its own).
           git fetch --no-tags origin "$BASE_REF"
-          # Release syncs commit do not need the one-plugin gate, as a release touches multiple plugins-registry files.
-          registry_subjects="$(git log --format=%s "origin/$BASE_REF"...HEAD -- plugins-registry plugins-registry.json || true)"
-          if [ -n "$registry_subjects" ] && ! printf '%s\n' "$registry_subjects" | grep -qvE '^chore: auto-update system files to v[0-9]'; then
+          # A release sync merges every registry change in the release at once.
+          if [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ] && [[ "$HEAD_REF" =~ ^chore/career-ops-v[0-9] ]]; then
             echo "Release sync — one-plugin-per-PR gate not applicable."
             exit 0
           fi
