@@ -109,9 +109,6 @@ jobs:
     # About 2 minutes. Limited for the test job's reason.
     timeout-minutes: 20
     steps:
-<<<<<<< HEAD
-      - run: node upgrade-tests.mjs --pr-gate
-=======
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0            # harness needs release tags
@@ -134,4 +131,3 @@ jobs:
         run: node upgrade-tests.mjs --user-layer-refusal
       - name: Failed npm install is reported, rollback reinstalls
         run: node upgrade-tests.mjs --failed-install
->>>>>>> career-ops-v1.38.0
