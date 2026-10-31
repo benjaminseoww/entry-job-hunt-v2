@@ -120,6 +120,38 @@ test('a misspelled commented-out section still gets its suggestion', () => {
   assert.equal(unknown.find((f) => f.key === 'page_fromat')?.suggestion, 'page_format');
 });
 
+test('every opt-in key the example ships commented out is known, including mode-read ones (#4736)', () => {
+  // auto_pdf_score_threshold (modes/pipeline.md) and culture_screen
+  // (modes/_shared.md) have no .mjs reader, so a grep for readers misses them;
+  // they were reported "no effect" exactly like style and page_format.
+  for (const key of ['auto_pdf_score_threshold', 'culture_screen']) {
+    assert.match(EXAMPLE, new RegExp(`^# ${key}:`, 'm'), `${key} is no longer a commented block in the example`);
+    const { findings } = validateProfile(`${key}: 1\n`, EXAMPLE);
+    assert.deepEqual(findings, [], `${key} was reported: ${JSON.stringify(findings)}`);
+  }
+});
+
+test('the shipped example with every opt-in block uncommented still validates clean (#4736)', () => {
+  // "Validates clean against itself" above passes whether or not commented
+  // sections are understood, because they stay commented. Un-comment each
+  // column-0 `# key:` block (and its indented `#   ...` body) and re-validate,
+  // so the next opt-in block added to the example is covered with no edit here.
+  const out = [];
+  let inBlock = false;
+  for (const line of EXAMPLE.split('\n')) {
+    if (/^# [a-z][a-z0-9_]*:(\s|$)/.test(line)) { out.push(line.slice(2)); inBlock = true; continue; }
+    if (inBlock && /^#\s{2,}\S/.test(line)) { out.push(line.slice(2)); continue; }
+    inBlock = false;
+    out.push(line);
+  }
+  const uncommented = out.join('\n');
+  assert.notEqual(uncommented, EXAMPLE, 'the example no longer has commented opt-in blocks to exercise');
+  // All findings, not just unknown-key: an uncommented example that stopped
+  // parsing would otherwise pass this test vacuously.
+  const { findings } = validateProfile(uncommented, EXAMPLE);
+  assert.deepEqual(findings, [], `the uncommented example produced findings: ${JSON.stringify(findings)}`);
+});
+
 test('empty, comment-only and absent profiles are not errors', () => {
   // Legitimate starting states. doctor's existence check owns "not set up yet";
   // this one must not double-report it as a shape problem.

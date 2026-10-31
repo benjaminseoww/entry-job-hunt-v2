@@ -10,4 +10,16 @@ jobs:
     if: false
     runs-on: ubuntu-latest
     steps:
+<<<<<<< HEAD
       - run: echo "disabled on this fork"
+=======
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+          cache-dependency-path: dashboard/go.sum
+      - run: npm install --ignore-scripts
+>>>>>>> career-ops-v1.38.0
