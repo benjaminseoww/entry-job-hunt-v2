@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pass, fail, hermeticGitEnv } from './helpers.mjs';
 import { restoreForkUserLayer } from '../.github/scripts/restore-fork-user-layer.mjs';
-import { buildConflictNotes, parseAgentReport } from '../.github/scripts/sync-conflict-notes.mjs';
+import { buildConflictNotes, parseAgentReport, parseCopilotModel } from '../.github/scripts/sync-conflict-notes.mjs';
 
 console.log('\nsync conflict resolve — user layer stays, PR notes quote the try');
 
@@ -92,19 +92,40 @@ try {
     fail(`report parse failed: ${JSON.stringify([...parsed])}`);
   }
 
+  const copilotLog = [
+    '{"type":"session.start","data":{"selectedModel":"auto"}}',
+    '{"type":"session.model_change","data":{"newModel":"gpt-6-luna"}}',
+    '{"type":"assistant.message","data":{"content":"done"}}',
+    'not json',
+    '',
+  ].join('\n');
+  const twoModels = [
+    '{"type":"assistant.message","data":{"model":"gpt-6-luna"}}',
+    '{"type":"assistant.message","data":{"model":"claude-sonnet-5.5"}}',
+  ].join('\n');
+  if (parseCopilotModel(copilotLog) === 'gpt-6-luna'
+    && parseCopilotModel(twoModels) === 'gpt-6-luna, claude-sonnet-5.5'
+    && parseCopilotModel('{"type":"session.start","data":{"selectedModel":"auto"}}') === '') {
+    pass('the Copilot JSONL yields the model that answered');
+  } else {
+    fail(`model parse failed: ${JSON.stringify(parseCopilotModel(copilotLog))} / ${JSON.stringify(parseCopilotModel(twoModels))}`);
+  }
+
   const notes = buildConflictNotes({
     beforeFiles: ['cv.md', 'data/kept.txt', 'data/added.txt', 'scan.mjs'],
     afterFiles: ['scan.mjs'],
     agentReport: report,
+    copilotLog,
     disposition: 'kept',
   });
   if (notes.includes('## Merge conflicts')
     && notes.includes('That try is on this branch')
+    && notes.includes('**Model:** gpt-6-luna')
     && notes.includes('### `cv.md`')
     && notes.includes('user-layer')
     && notes.includes('### `scan.mjs`')
     && notes.includes('Kept the release timeout')) {
-    pass('PR notes name each conflict and how the try handled it');
+    pass('PR notes name each conflict, the model, and how the try handled it');
   } else {
     fail(`notes missing a conflict account:\n${notes}`);
   }
@@ -114,7 +135,7 @@ try {
     afterFiles: ['scan.mjs'],
     disposition: 'not-run',
   });
-  if (skipped.includes('**Handled:** no') && skipped.includes('Copilot did not run')) {
+  if (skipped.includes('**Handled:** no') && skipped.includes('Copilot did not run') && !skipped.includes('**Model:**')) {
     pass('a skipped try is reported as not handled');
   } else {
     fail(`skipped try was not reported:\n${skipped}`);

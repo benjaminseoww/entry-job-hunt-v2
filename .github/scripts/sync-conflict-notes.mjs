@@ -18,9 +18,43 @@ const INTRO = {
 };
 
 /**
- * @param {string} report
- * @returns {Map<string, { handled: string, how: string }>}
+ * Models that produced assistant messages in a `--output-format json` log.
+ * `session.start` may only say `auto`; a later `session.model_change` or
+ * `assistant.message` names the model that answered. Empty when no event does.
+ * Several models are returned in the order they first appeared, joined by ", ".
+ * @param {string} log
+ * @returns {string}
  */
+export function parseCopilotModel(log) {
+  let current = '';
+  const seen = [];
+  const note = (model) => {
+    if (!model || model === 'auto' || seen.includes(model)) return;
+    seen.push(model);
+  };
+  for (const line of String(log || '').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('{')) continue;
+    let event;
+    try {
+      event = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    const data = event?.data && typeof event.data === 'object' ? event.data : {};
+    if (event?.type === 'session.start' || event?.type === 'session.resume') {
+      if (typeof data.selectedModel === 'string') current = data.selectedModel;
+      note(data.selectedModel);
+    } else if (event?.type === 'session.model_change') {
+      if (typeof data.newModel === 'string') current = data.newModel;
+      note(data.newModel);
+    } else if (event?.type === 'assistant.message') {
+      note(typeof data.model === 'string' && data.model ? data.model : current);
+    }
+  }
+  return seen.join(', ');
+}
+
 export function parseAgentReport(report) {
   const found = new Map();
   const chunks = String(report || '').split(/^### `/m).slice(1);
@@ -46,16 +80,21 @@ export function parseAgentReport(report) {
  * @param {string[]} input.beforeFiles - Unmerged paths before the user-layer restore.
  * @param {string[]} input.afterFiles - Unmerged paths after that restore.
  * @param {string} [input.agentReport]
+ * @param {string} [input.copilotLog] - Copilot CLI JSONL. The model is read from the events.
  * @param {string} input.disposition - kept | discarded | partial | failed | not-run | user-only
  * @returns {string}
  */
-export function buildConflictNotes({ beforeFiles, afterFiles, agentReport = '', disposition }) {
+export function buildConflictNotes({ beforeFiles, afterFiles, agentReport = '', copilotLog = '', disposition }) {
   const intro = INTRO[disposition];
   if (!intro) throw new Error(`unknown disposition: ${disposition}`);
   const after = new Set(afterFiles.filter(Boolean));
   const userLayer = beforeFiles.filter((file) => file && !after.has(file));
   const agent = parseAgentReport(agentReport);
   const lines = ['## Merge conflicts', '', intro, ''];
+  if (disposition !== 'not-run' && disposition !== 'user-only') {
+    const model = parseCopilotModel(copilotLog);
+    lines.push(`**Model:** ${model || 'not reported'}`, '');
+  }
 
   const section = (file, handled, how) => {
     lines.push(`### \`${file}\``);
@@ -98,10 +137,12 @@ const isCli = process.argv[1]
   && realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
 if (isCli) {
   const reportPath = arg('--agent-report');
+  const logPath = arg('--copilot-log');
   process.stdout.write(buildConflictNotes({
     beforeFiles: readList(arg('--before')),
     afterFiles: readList(arg('--after')),
     agentReport: reportPath ? readFileSync(reportPath, 'utf8') : '',
+    copilotLog: logPath ? readFileSync(logPath, 'utf8') : '',
     disposition: arg('--disposition'),
   }));
 }

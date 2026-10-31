@@ -54,7 +54,10 @@ write_notes() {
   local disposition="$1"
   local report_args=()
   if [ -n "${2:-}" ] && [ -f "$2" ]; then
-    report_args=(--agent-report "$2")
+    report_args+=(--agent-report "$2")
+  fi
+  if [ -f "$RUNNER_TEMP/copilot.log" ]; then
+    report_args+=(--copilot-log "$RUNNER_TEMP/copilot.log")
   fi
   node .github/scripts/sync-conflict-notes.mjs \
     --before "$RUNNER_TEMP/conflicts-before.txt" \
@@ -151,8 +154,9 @@ EOF
   set +e
   copilot --autopilot --max-autopilot-continues 12 --no-ask-user \
     --allow-tool='write,shell(git:diff*),shell(git:status),shell(git:show*),shell(git:log*)' \
-    -p "$prompt"
-  copilot_status=$?
+    --output-format json \
+    -p "$prompt" 2>&1 | tee "$RUNNER_TEMP/copilot.log"
+  copilot_status=${PIPESTATUS[0]}
   set -e
   if [ -f sync-conflict-report.md ]; then
     cp sync-conflict-report.md "$RUNNER_TEMP/agent-report.md"
