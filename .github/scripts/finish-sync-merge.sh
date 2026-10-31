@@ -142,6 +142,11 @@ if [ -z "${COPILOT_GITHUB_TOKEN:-}" ]; then
   echo "COPILOT_GITHUB_TOKEN is not set; leaving conflict markers"
 else
   npm install -g @github/copilot
+  # A fresh home keeps this run's session events in one place. The model is
+  # read from those events after Copilot exits. Standard output stays the
+  # CLI's message log.
+  copilot_home="$RUNNER_TEMP/copilot-home"
+  mkdir -p "$copilot_home"
   prompt="$(cat <<EOF
 Read and follow .github/skills/resolve-sync-conflicts/SKILL.md before you edit anything.
 
@@ -152,12 +157,17 @@ $(sed 's/^/- /' "$RUNNER_TEMP/conflicts-after.txt")
 EOF
 )"
   set +e
-  copilot --autopilot --max-autopilot-continues 12 --no-ask-user \
+  COPILOT_HOME="$copilot_home" copilot --autopilot --max-autopilot-continues 12 --no-ask-user \
     --allow-tool='write,shell(git:diff*),shell(git:status),shell(git:show*),shell(git:log*)' \
-    --output-format json \
-    -p "$prompt" 2>&1 | tee "$RUNNER_TEMP/copilot.log"
-  copilot_status=${PIPESTATUS[0]}
+    -p "$prompt"
+  copilot_status=$?
   set -e
+  if [ -d "$copilot_home/session-state" ]; then
+    : > "$RUNNER_TEMP/copilot.log"
+    find "$copilot_home/session-state" -name events.jsonl -print | sort | while IFS= read -r events; do
+      cat "$events" >> "$RUNNER_TEMP/copilot.log"
+    done
+  fi
   if [ -f sync-conflict-report.md ]; then
     cp sync-conflict-report.md "$RUNNER_TEMP/agent-report.md"
     report="$RUNNER_TEMP/agent-report.md"
