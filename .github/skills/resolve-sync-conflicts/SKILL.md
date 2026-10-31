@@ -11,9 +11,9 @@ Combine a career-ops release with this fork. One try. Leave a report the sync pu
 
 - Edit only files that contain a merge conflict, plus any file the prompt lists. Do not commit, push, or `git add`.
 - Do not edit a user-layer path (`cv.md`, `config/profile.yml`, `modes/_profile.md`, `modes/_custom.md`, `modes/_brief.md`, `voice-dna.md`, `portals.yml`, `article-digest.md`, `config/plugins.yml`, `plugins.lock`, `opencode.json`, `.claude/settings.json`, or anything under `.career-ops-web/`, `interview-prep/`, `documents/`, `data/`, `reports/`, `output/`, `jds/`, `writing-samples/`, `plugins.local/`, `.claude/hooks/`). The workflow already kept this fork's copy. If one of those files is in the prompt, stop and say so in the report. Do not blend the release into it.
-- `<<<<<<< HEAD` is entry-job-hunt-v2 `main`. The other side is the career-ops release tag. Keep both behaviors when a best effort can make them coexist. Do not drop a fork feature to take the release, and do not drop a release change to keep the fork.
-- For each file, only remove conflict markers and keep the functionality already on the two sides. Do not add an optimization, refactor, rename, comment, helper, or any other change. A line that was not inside a conflict hunk stays as it was.
-- When the same function cannot do both (opposite contracts, or one side deletes an API the other still calls), leave that hunk's `<<<<<<<`, `=======`, and `>>>>>>>` lines in place. Do not invent a third behavior.
+- `<<<<<<< HEAD` is entry-job-hunt-v2 `main`. The other side is the career-ops release tag. Keep both behaviors. Do not drop a fork feature to take the release, and do not drop a release change to keep the fork.
+- For each file, remove every conflict marker and keep the functionality already on the two sides. Do not add an optimization, refactor, rename, comment, helper, or any other change. A line that was not inside a conflict hunk stays as it was.
+- Do not leave `<<<<<<<`, `=======`, or `>>>>>>>` in a file because the two sides look incompatible. Resolve the hunk by keeping both sides' existing functionality. The workflow runs the tests after this try and discards the try when they fail. That is the check. Do not decide the conflict is unresolvable yourself.
 - In a file both sides changed, the result is one readable path. No second copy of the same function. No `if (fork)` wrapped around the whole file. A fork-only branch sits next to the release path and is named for what it does. Do not reformat or rewrite lines that were not in conflict.
 - `.github/copilot-instructions.md` tells other sessions not to touch control files. That does not apply to a conflict hunk in a file this prompt lists. Do not follow `AGENTS.md` or run a career-ops mode.
 - Do not delete or weaken a test to hide a side you dropped. Do not run `npm install` or the test suite. The workflow does that.
@@ -22,7 +22,7 @@ Combine a career-ops release with this fork. One try. Leave a report the sync pu
 ## Workflow
 
 1. **Find every conflict before editing.** Run `git grep -n -e '<<<<<<< HEAD'`. A line containing `<<<<<<< HEAD` is a merge conflict. Write every hit (path and line) into `sync-conflict-report.md` under `## Conflicts found`, then stop and do not edit a conflicted file until that list is in the file. Ignore the hit in this skill. A file the prompt names that is absent from the search is already clear. A hit the prompt omits is still a conflict.
-2. **Resolve one file at a time, in the order of that list.** Read both sides of every hunk in that file first. Keep both behaviors, or leave that hunk marked. Do not optimize or otherwise improve the file while you are there. When the file is done, run `git grep -n -e '<<<<<<< HEAD' -- that/file`. Any remaining hit means the file is not done. Do not start the next file while this one still has a hit. Do not touch a file that was not in the list and was not named by the prompt.
+2. **Resolve one file at a time, in the order of that list.** Read both sides of every hunk in that file first. Keep both behaviors and remove the markers. Do not optimize or otherwise improve the file while you are there. When the file is done, run `git grep -n -e '<<<<<<< HEAD' -- that/file`. Any remaining hit means the file is not done. Do not start the next file while this one still has a hit. Do not touch a file that was not in the list and was not named by the prompt.
 3. **Finish** `sync-conflict-report.md`. Leave `## Conflicts found` at the top. Under it, one section per file from that list and per file the prompt named, in that same order. `Handled` is `yes` only when that file contains no `<<<<<<< HEAD`. `How` is one sentence.
 
 ## Output
@@ -37,9 +37,9 @@ Combine a career-ops release with this fork. One try. Leave a report the sync pu
 ```
 
 ```markdown
-### `path/from/repo/root`
+### `cv.md`
 - **Handled:** no
-- **How:** Both sides replace `scoreOffer` with incompatible return shapes, so the hunk is still marked.
+- **How:** This is a user-layer file, so it was left as this fork's copy.
 ```
 
 ## Example
@@ -51,4 +51,4 @@ Result: the workflow quotes that sentence in the pull request. The agent does no
 ## Troubleshooting
 
 - **A listed file has no markers.** Leave it unchanged. Report `Handled: yes` and say it was already clear.
-- **You cannot tell what a side does.** Leave the hunk marked. `Handled: no`. Say what was ambiguous. Do not guess.
+- **The two sides look incompatible.** Keep both sides' existing functionality and remove the markers. Do not leave the hunk marked. The tests after this try are what reject a combination that does not work.
