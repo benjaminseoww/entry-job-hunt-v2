@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Merge one published career-ops release tag into a branch that starts at
-# entry-job-hunt-v2 main.
+# Merge one published career-ops release tag into the branch this run checked
+# out (FORK_BRANCH). A schedule run checks out main. A manual run checks out
+# the branch selected in workflow_dispatch.
 # Keep user-layer paths as this fork has them, and ask Copilot once to
 # combine the rest.
 # Writes $RUNNER_TEMP/conflict-notes.md when any path conflicted, and sets
@@ -35,7 +36,7 @@ if git merge --no-ff --no-edit -m "chore: merge career-ops v${REMOTE} into entry
   merge_ok=true
 fi
 
-if [ "$merge_ok" = false ] && [ ! -f .git/MERGE_HEAD ]; then
+if [ "$merge_ok" = false ] && [ ! -f "$(git rev-parse --git-path MERGE_HEAD)" ]; then
   echo "git merge failed without leaving conflicts"
   exit 1
 fi
@@ -89,12 +90,13 @@ echo "conflicted files after user-layer restore:"
 cat "$RUNNER_TEMP/conflicts-after.txt"
 
 # Exact pre-agent index and worktree, so a bad try can be put back.
-cp .git/index "$RUNNER_TEMP/index.before"
+GIT_INDEX="$(git rev-parse --git-path index)"
+cp "$GIT_INDEX" "$RUNNER_TEMP/index.before"
 mkdir -p "$RUNNER_TEMP/pre-agent"
 rsync -a --exclude '.git' ./ "$RUNNER_TEMP/pre-agent/"
 
 restore_pre_agent() {
-  cp "$RUNNER_TEMP/index.before" .git/index
+  cp "$RUNNER_TEMP/index.before" "$GIT_INDEX"
   rsync -a --delete --exclude '.git' "$RUNNER_TEMP/pre-agent/" ./
 }
 

@@ -1,8 +1,9 @@
 name: Sync career-ops releases
 
-# Merges a published career-ops-hq release tag into benjaminseoww/entry-job-hunt-v2
-# main. The pull request always targets that main. Commits on career-ops main
-# that are not in a release yet are left alone.
+# Merges a published career-ops-hq release tag into the branch that triggered
+# this run. A schedule run uses main. A workflow_dispatch run uses the branch
+# you selected, and the pull request targets that same branch. Commits on
+# career-ops main that are not in a release yet are left alone.
 #
 # Merge the sync pull request with a merge commit. A squash would drop
 # upstream's history, and every later sync would conflict again on changes
@@ -36,13 +37,13 @@ jobs:
     runs-on: ubuntu-latest
     env:
       FORK_REPO: benjaminseoww/entry-job-hunt-v2
-      FORK_BRANCH: main
+      FORK_BRANCH: ${{ github.ref_name }}
       UPSTREAM_REPO: career-ops-hq/career-ops
     steps:
       - uses: actions/checkout@v7
         with:
           repository: benjaminseoww/entry-job-hunt-v2
-          ref: main
+          ref: ${{ github.ref }}
           fetch-depth: 0
           token: ${{ secrets.CAREER_OPS_SYNC_TOKEN }}
           persist-credentials: true
@@ -106,7 +107,7 @@ jobs:
           CONFLICTED: ${{ steps.merge.outputs.conflicted }}
         run: |
           set -euo pipefail
-          git push --force origin "HEAD:${BRANCH}"
+          git push --force origin "${BRANCH}:${BRANCH}"
           body="$RUNNER_TEMP/pr-body.md"
           {
             echo "Merges the published career-ops release v${LOCAL} → v${REMOTE} into \`benjaminseoww/entry-job-hunt-v2\` \`${FORK_BRANCH}\`. The release tag is compared with that branch. Your own edits stay; files only this fork has are untouched."
@@ -130,8 +131,8 @@ jobs:
               echo "Then mark this pull request ready for review."
             } >> "$body"
             gh pr create --repo "$FORK_REPO" --draft --base "$FORK_BRANCH" --head "$BRANCH" \
-              --title "chore: sync career-ops v${REMOTE} into entry-job-hunt-v2 main (conflicts)" --body-file "$body"
+              --title "chore: sync career-ops v${REMOTE} into entry-job-hunt-v2 ${FORK_BRANCH} (conflicts)" --body-file "$body"
           else
             gh pr create --repo "$FORK_REPO" --base "$FORK_BRANCH" --head "$BRANCH" \
-              --title "chore: sync career-ops v${REMOTE} into entry-job-hunt-v2 main" --body-file "$body"
+              --title "chore: sync career-ops v${REMOTE} into entry-job-hunt-v2 ${FORK_BRANCH}" --body-file "$body"
           fi
