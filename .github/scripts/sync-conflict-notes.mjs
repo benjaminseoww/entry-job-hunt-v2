@@ -18,10 +18,11 @@ const INTRO = {
 };
 
 /**
- * Models that produced assistant messages in a `--output-format json` log.
- * `session.start` may only say `auto`; a later `session.model_change` or
- * `assistant.message` names the model that answered. Empty when no event does.
- * Several models are returned in the order they first appeared, joined by ", ".
+ * Models that answered, read from a Copilot session `events.jsonl`.
+ * `session.start` may only say `auto`. A later `session.auto_mode_resolved`,
+ * `session.model_change`, `assistant.message`, or `session.shutdown` names the
+ * model. Empty when no event does. Several models are returned in the order
+ * they first appeared, joined by ", ".
  * @param {string} log
  * @returns {string}
  */
@@ -48,8 +49,20 @@ export function parseCopilotModel(log) {
     } else if (event?.type === 'session.model_change') {
       if (typeof data.newModel === 'string') current = data.newModel;
       note(data.newModel);
+    } else if (event?.type === 'session.auto_mode_resolved') {
+      if (typeof data.chosenModel === 'string') current = data.chosenModel;
+      note(data.chosenModel);
     } else if (event?.type === 'assistant.message') {
       note(typeof data.model === 'string' && data.model ? data.model : current);
+    } else if (event?.type === 'session.shutdown') {
+      if (typeof data.currentModel === 'string') {
+        current = data.currentModel;
+        note(data.currentModel);
+      }
+      const metrics = data.modelMetrics;
+      if (metrics && typeof metrics === 'object') {
+        for (const model of Object.keys(metrics)) note(model);
+      }
     }
   }
   return seen.join(', ');
@@ -80,7 +93,7 @@ export function parseAgentReport(report) {
  * @param {string[]} input.beforeFiles - Unmerged paths before the user-layer restore.
  * @param {string[]} input.afterFiles - Unmerged paths after that restore.
  * @param {string} [input.agentReport]
- * @param {string} [input.copilotLog] - Copilot CLI JSONL. The model is read from the events.
+ * @param {string} [input.copilotLog] - Copilot session events.jsonl. The model is read from the events.
  * @param {string} input.disposition - kept | discarded | partial | failed | not-run | user-only
  * @returns {string}
  */

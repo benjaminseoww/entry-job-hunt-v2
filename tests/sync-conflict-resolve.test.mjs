@@ -103,12 +103,19 @@ try {
     '{"type":"assistant.message","data":{"model":"gpt-6-luna"}}',
     '{"type":"assistant.message","data":{"model":"claude-sonnet-5.5"}}',
   ].join('\n');
+  const sessionEvents = [
+    '{"type":"session.start","data":{"selectedModel":"auto"}}',
+    '{"type":"session.auto_mode_resolved","data":{"chosenModel":"gpt-6-luna"}}',
+    '{"type":"assistant.message","data":{"content":"done"}}',
+    '{"type":"session.shutdown","data":{"currentModel":"gpt-6-luna","modelMetrics":{"gpt-6-luna":{}}}}',
+  ].join('\n');
   if (parseCopilotModel(copilotLog) === 'gpt-6-luna'
     && parseCopilotModel(twoModels) === 'gpt-6-luna, claude-sonnet-5.5'
+    && parseCopilotModel(sessionEvents) === 'gpt-6-luna'
     && parseCopilotModel('{"type":"session.start","data":{"selectedModel":"auto"}}') === '') {
-    pass('the Copilot JSONL yields the model that answered');
+    pass('the Copilot session events yield the model that answered');
   } else {
-    fail(`model parse failed: ${JSON.stringify(parseCopilotModel(copilotLog))} / ${JSON.stringify(parseCopilotModel(twoModels))}`);
+    fail(`model parse failed: ${JSON.stringify(parseCopilotModel(copilotLog))} / ${JSON.stringify(parseCopilotModel(twoModels))} / ${JSON.stringify(parseCopilotModel(sessionEvents))}`);
   }
 
   const notes = buildConflictNotes({
