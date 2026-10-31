@@ -152,7 +152,21 @@ export function followupCommitMessage(userLayer, disabledWorkflows) {
   return "chore: keep this fork's user-layer files";
 }
 
+const USAGE = `Usage:
+  node .github/scripts/restore-disabled-workflows.mjs <fork-sha>
+  node .github/scripts/restore-disabled-workflows.mjs --strip-list <restored-json> <paths-file>
+  node .github/scripts/restore-disabled-workflows.mjs --followup-message <user-layer-json> <disabled-json>
+
+  <fork-sha>              checkout workflows that stayed disabled on this fork
+  --strip-list            drop restored workflow paths from a path list
+  --followup-message      print the follow-up commit message
+  --help, -h              print this and exit`;
+
 if (isMainModule(import.meta.url)) {
+  if (process.argv.slice(2).some((arg) => arg === '--help' || arg === '-h')) {
+    console.log(USAGE);
+    process.exit(0);
+  }
   if (process.argv[2] === '--strip-list') {
     const restored = JSON.parse(readFileSync(process.argv[3], 'utf8')).restored || [];
     const kept = pathsExceptRestored(readFileSync(process.argv[4], 'utf8').split('\n'), restored);

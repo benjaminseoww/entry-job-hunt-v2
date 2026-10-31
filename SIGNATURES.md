@@ -189,3 +189,18 @@ public commit with a stated reason.
 - @sec-js | 2026-09-30 | id:54868859 | src:https://github.com/career-ops-hq/career-ops/discussions/4654 | n:141
 - @nguyentuanngoc21 | 2026-10-01 | "I am trying with it, it looks good" | id:82352476 | src:https://github.com/career-ops-hq/career-ops/discussions/4662 | n:142
 - @Krandheer | Randheer | 2026-10-02 | id:37265128 | src:https://github.com/career-ops-hq/career-ops/discussions/4712 | n:143
+- @JohnFScha | John F. | 2026-10-05 | "We need more tools like this, long live OSS" | id:115885102 | src:https://github.com/career-ops-hq/career-ops/discussions/4775 | n:144
+- @dineshmannam | Dinesh Mannam | 2026-10-06 | id:30947154 | src:https://github.com/career-ops-hq/career-ops/discussions/4828 | n:145
+- @kalilurrahman | Kalilur Rahman | 2026-10-07 | "Great tool. Nice choice for great candidates to apply to good companies" | id:54368215 | src:https://github.com/career-ops-hq/career-ops/discussions/4839 | n:146
+- @Sandeep12a7 | Sandeep Vaskuri | 2026-10-08 | id:130230409 | src:https://github.com/career-ops-hq/career-ops/discussions/4857 | n:147
+- @Akane1986 | Diana | 2026-10-08 | "Now lets use IA to get the next level of my career" | id:130022501 | src:https://github.com/career-ops-hq/career-ops/discussions/4862 | n:148
+- @hgomecre | 2026-10-09 | id:275106938 | src:https://github.com/career-ops-hq/career-ops/discussions/4881 | n:149
+- @ringo380 | Ryan Robson | 2026-10-11 | "Every claim on my resume traces back to something I actually did. That should be the floor, not the differentiator." | id:971764 | src:https://github.com/career-ops-hq/career-ops/pull/4988 | n:150
+- @hibakahack-cell | 2026-10-13 | id:283028898 | src:https://github.com/career-ops-hq/career-ops/discussions/5151 | n:151
+- @echooolin00 | 2026-10-14 | id:286250255 | src:https://github.com/career-ops-hq/career-ops/discussions/5243 | n:152
+- @mwangiiharun | Harun Mwangi | 2026-10-14 | "Hiring should be about showcasing skills. Not which LLM knows how to parse resume's better" | id:20253651 | src:https://github.com/career-ops-hq/career-ops/discussions/5252 | n:153
+- @Michos12 | Michael Veliz | 2026-10-15 | id:129358905 | src:https://github.com/career-ops-hq/career-ops/discussions/5328 | n:154
+- @Gwilymm | 2026-10-16 | "Real people applying for real jobs deserve real human consideration, not applications screened by AI and answered with automated replies." | id:22996166 | src:https://github.com/career-ops-hq/career-ops/discussions/5359 | n:155
+- @tuongkhang012 | Akane | 2026-10-17 | "It's only natural" | id:102443108 | src:https://github.com/career-ops-hq/career-ops/discussions/5403 | n:156
+- @tanyiwende19-source | 2026-10-18 | "Selina" | id:263991212 | src:https://github.com/career-ops-hq/career-ops/discussions/5444 | n:157
+- @AyunniZafirah | 2026-10-21 | id:149381795 | src:https://github.com/career-ops-hq/career-ops/discussions/5622 | n:158

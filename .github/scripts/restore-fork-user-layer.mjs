@@ -91,7 +91,17 @@ export function restoreForkUserLayer(root, forkSha, env = process.env) {
   return { restored, removed };
 }
 
+const USAGE = `Usage:
+  node .github/scripts/restore-fork-user-layer.mjs <fork-sha>
+
+  <fork-sha>    put user-layer paths back to this commit
+  --help, -h    print this and exit`;
+
 if (isMainModule(import.meta.url)) {
+  if (process.argv.slice(2).some((arg) => arg === '--help' || arg === '-h')) {
+    console.log(USAGE);
+    process.exit(0);
+  }
   const forkSha = process.argv[2];
   if (!forkSha) {
     console.error('usage: restore-fork-user-layer.mjs <fork-sha>');
