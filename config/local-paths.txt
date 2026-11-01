@@ -1,0 +1,5 @@
+# Fork-owned files that upstream career-ops does not ship.
+# update-system.mjs never writes to these; the coverage guard accepts them.
+generate-docx.mjs
+lib/docx-resume.mjs
+lib/docx-zip.mjs
