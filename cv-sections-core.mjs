@@ -139,15 +139,18 @@ const PATTERNS = {
   tex: {
     // The LaTeX banner is `%%%%  Experience  %%%%` — mixed case, and not the
     // "WORK EXPERIENCE" the HTML templates use.
+    summary: new RegExp(String.raw`%{4,}\s+SUMMARY\s+%{4,}[\s\S]*?` + TEX_BOUNDARY),
     experience: new RegExp(String.raw`%{4,}\s+Experience\s+%{4,}[\s\S]*?` + TEX_BOUNDARY),
     projects: new RegExp(String.raw`%{4,}\s+PROJECTS\s+%{4,}[\s\S]*?` + TEX_BOUNDARY),
     education: new RegExp(String.raw`%{4,}\s+Education\s+%{4,}[\s\S]*?` + TEX_BOUNDARY),
+    certifications: new RegExp(String.raw`%{4,}\s+CERTIFICATIONS\s+%{4,}[\s\S]*?` + TEX_BOUNDARY),
+    extracurricular: new RegExp(String.raw`%{4,}\s+EXTRACURRICULAR\s+%{4,}[\s\S]*?` + TEX_BOUNDARY),
     awards: new RegExp(String.raw`%{4,}\s+AWARDS\s+%{4,}[\s\S]*?` + TEX_BOUNDARY),
     skills: new RegExp(String.raw`%{4,}\s+Technical Skills\s+%{4,}[\s\S]*?` + TEX_END_SENTINEL, 'm'),
   },
 };
 
-export const OPTIONAL_SECTIONS = ['summary', 'competencies', 'experience', 'projects', 'education', 'certifications', 'awards', 'interests', 'skills'];
+export const OPTIONAL_SECTIONS = ['summary', 'competencies', 'experience', 'projects', 'education', 'certifications', 'extracurricular', 'awards', 'interests', 'skills'];
 
 // Sections whose payload value is text rather than a list of entries.
 const TEXT_SECTIONS = new Set(['summary']);

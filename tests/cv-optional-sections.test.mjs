@@ -61,6 +61,7 @@ const FULL = {
   projects: [{ name: 'P' }],
   education: [{ degree: 'D' }],
   certifications: [{ title: 'C' }],
+  extracurricular: [{ title: 'X' }],
   awards: [{ title: 'A' }],
   interests: ['Chess'],
   skills: [{ category: 'S', items: 'x' }],
@@ -88,6 +89,7 @@ const TEMPLATES = [
   { file: 'templates/cv-template.modern.html', format: 'html', after: '<!-- END -->', hasCertifications: true, hasCompetencies: true, hasInterests: false },
   { file: 'templates/cv-template.tex', format: 'tex', after: '%%%%  END  %%%%', hasCertifications: false, hasCompetencies: false, hasInterests: false },
   { file: 'templates/cv-template.cjk.tex', format: 'tex', after: '%%%%  END  %%%%', hasCertifications: false, hasCompetencies: false, hasInterests: false },
+  { file: 'templates/cv-template.seow.tex', format: 'tex', after: '%%%%  END  %%%%', hasCertifications: false, hasCompetencies: false, hasInterests: false, hasAwards: false },
 ];
 
 // --- Coverage guard: no shipped CV template may sit outside the matrix ------
@@ -120,7 +122,9 @@ else fail(`shipped CV templates missing from TEMPLATES — they run zero asserti
 if (phantom.length === 0) pass('every template in the matrix exists on disk');
 else fail(`TEMPLATES names templates that are not on disk: ${phantom.join(', ')}`);
 
-for (const { file, format, after, hasCertifications, hasCompetencies, hasInterests } of TEMPLATES) {
+for (const spec of TEMPLATES) {
+  const { file, format, after, hasCertifications, hasCompetencies, hasInterests } = spec;
+  const hasAwards = spec.hasAwards !== false;
   const template = readFileSync(join(ROOT, file), 'utf-8');
   const name = file.split('/').pop();
   const closingSkeleton = format === 'html' ? '</body>\n</html>' : '\\end{document}';
@@ -174,7 +178,7 @@ for (const { file, format, after, hasCertifications, hasCompetencies, hasInteres
   const onlyEdu = stripEmptySections(template, { ...FULL, education: [] }, format);
   check(`${name}: empty education alone keeps projects`, onlyEdu.includes(projectsMarker), true);
   check(`${name}: empty education alone drops education`, onlyEdu.includes(educationMarker), false);
-  check(`${name}: empty education alone keeps awards`, onlyEdu.includes(awardsMarker), true);
+  if (hasAwards) check(`${name}: empty education alone keeps awards`, onlyEdu.includes(awardsMarker), true);
   check(`${name}: empty education alone keeps skills`, onlyEdu.includes(skillsMarker), true);
   if (hasCompetencies) {
     check(`${name}: empty education alone keeps competencies`, onlyEdu.includes(competenciesMarker), true);
@@ -187,7 +191,7 @@ for (const { file, format, after, hasCertifications, hasCompetencies, hasInteres
     check(`${name}: empty certifications alone keeps projects`, onlyCert.includes(projectsMarker), true);
     check(`${name}: empty certifications alone keeps education`, onlyCert.includes(educationMarker), true);
     check(`${name}: empty certifications alone drops certifications`, onlyCert.includes(certificationsMarker), false);
-    check(`${name}: empty certifications alone keeps awards`, onlyCert.includes(awardsMarker), true);
+    if (hasAwards) check(`${name}: empty certifications alone keeps awards`, onlyCert.includes(awardsMarker), true);
     check(`${name}: empty certifications alone keeps skills`, onlyCert.includes(skillsMarker), true);
   }
 
@@ -210,8 +214,8 @@ for (const { file, format, after, hasCertifications, hasCompetencies, hasInteres
   // into Skills or the trailing sentinel — assert both survive.
   if (hasInterests) {
     const onlyInterests = stripEmptySections(template, { ...FULL, interests: [] }, format);
-    check(`${name}: empty interests alone keeps awards`, onlyInterests.includes(awardsMarker), true);
     check(`${name}: empty interests alone drops interests`, onlyInterests.includes(interestsMarker), false);
+    if (hasAwards) check(`${name}: empty interests alone keeps awards`, onlyInterests.includes(awardsMarker), true);
     check(`${name}: empty interests alone keeps skills`, onlyInterests.includes(skillsMarker), true);
     check(`${name}: empty interests alone keeps the closing document skeleton`,
       onlyInterests.trimEnd().endsWith(closingSkeleton), true);
@@ -268,7 +272,7 @@ for (const { file, format, after, hasCertifications, hasCompetencies, hasInteres
     check(`${name}: empty competencies alone keeps the work-experience marker`, onlyComp.includes('<!-- WORK EXPERIENCE -->'), true);
     check(`${name}: empty competencies alone keeps {{EXPERIENCE}}`, onlyComp.includes('{{EXPERIENCE}}'), true);
     check(`${name}: empty competencies alone keeps projects`, onlyComp.includes(projectsMarker), true);
-    check(`${name}: empty competencies alone keeps awards`, onlyComp.includes(awardsMarker), true);
+    if (hasAwards) check(`${name}: empty competencies alone keeps awards`, onlyComp.includes(awardsMarker), true);
     check(`${name}: empty competencies alone keeps skills`, onlyComp.includes(skillsMarker), true);
   }
 
@@ -282,7 +286,7 @@ for (const { file, format, after, hasCertifications, hasCompetencies, hasInteres
   check(`${name}: empty experience alone drops {{EXPERIENCE}}`, onlyExp.includes('{{EXPERIENCE}}'), false);
   check(`${name}: empty experience alone keeps projects`, onlyExp.includes(projectsMarker), true);
   check(`${name}: empty experience alone keeps education`, onlyExp.includes(educationMarker), true);
-  check(`${name}: empty experience alone keeps awards`, onlyExp.includes(awardsMarker), true);
+  if (hasAwards) check(`${name}: empty experience alone keeps awards`, onlyExp.includes(awardsMarker), true);
   check(`${name}: empty experience alone keeps skills`, onlyExp.includes(skillsMarker), true);
   check(`${name}: empty experience alone keeps the closing document skeleton`,
     onlyExp.trimEnd().endsWith(closingSkeleton), true);
@@ -327,7 +331,7 @@ for (const { file, format, after, hasCertifications, hasCompetencies, hasInteres
   const onlySkills = stripEmptySections(template, { ...FULL, skills: [] }, format);
   check(`${name}: empty skills alone keeps projects`, onlySkills.includes(projectsMarker), true);
   check(`${name}: empty skills alone keeps education`, onlySkills.includes(educationMarker), true);
-  check(`${name}: empty skills alone keeps awards`, onlySkills.includes(awardsMarker), true);
+  if (hasAwards) check(`${name}: empty skills alone keeps awards`, onlySkills.includes(awardsMarker), true);
   check(`${name}: empty skills alone drops skills`, onlySkills.includes(skillsMarker), false);
   check(`${name}: empty skills alone keeps the closing document skeleton`,
     onlySkills.trimEnd().endsWith(closingSkeleton), true);
@@ -346,7 +350,7 @@ for (const { file, format, after, hasCertifications, hasCompetencies, hasInteres
     const bothEmpty = stripEmptySections(template, { ...FULL, interests: [], skills: [] }, format);
     check(`${name}: empty interests+skills drops interests`, bothEmpty.includes(interestsMarker), false);
     check(`${name}: empty interests+skills drops skills`, bothEmpty.includes(skillsMarker), false);
-    check(`${name}: empty interests+skills keeps awards`, bothEmpty.includes(awardsMarker), true);
+    if (hasAwards) check(`${name}: empty interests+skills keeps awards`, bothEmpty.includes(awardsMarker), true);
     check(`${name}: empty interests+skills keeps the closing document skeleton`,
       bothEmpty.trimEnd().endsWith(closingSkeleton), true);
   }

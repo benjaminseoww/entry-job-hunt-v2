@@ -115,6 +115,32 @@ function buildProjects(entries) {
   return blocks.join('\n\n');
 }
 
+function buildSummary(text) {
+  if (typeof text !== 'string' || text.trim() === '') return '';
+  return escapeLatex(text.trim());
+}
+
+// Certifications and extracurricular share one row shape: title and year on
+// the first line, organization on the second, then any detail lines as items.
+function buildDetailEntries(entries, section) {
+  if (!Array.isArray(entries) || entries.length === 0) return '';
+  const blocks = [];
+  for (const e of entries) {
+    if (!hasRequiredFields(e, section, 'tex')) continue;
+    const lines = [];
+    if (typeof e.description === 'string' && e.description.trim()) lines.push(e.description.trim());
+    if (Array.isArray(e.bullets)) lines.push(...e.bullets.filter(Boolean));
+    const items = lines.map(b => `            \\resumeItem{${escapeLatexBullet(b)}}`).join('\n');
+    const list = items
+      ? `\n      \\resumeItemListStart\n${items}\n      \\resumeItemListEnd`
+      : '';
+    blocks.push(
+      `    \\resumeSubheading\n      {${escapeLatex(e.title)}}{${escapeLatex(e.year || '')}}\n      {${escapeLatex(e.org || '')}}{}${list}`
+    );
+  }
+  return blocks.join('\n\n');
+}
+
 // Awards are one line each — no bullet list — so they reuse
 // \resumeProjectHeading (bold left column, year right) rather than
 // \resumeSubheading, which would leave an empty second row. The issuing body
@@ -183,15 +209,6 @@ async function main() {
     process.exit(1);
   }
 
-  const { errors, warnings } = validatePayload(payload, 'tex');
-  if (errors.length) {
-    console.error('Invalid CV payload:');
-    for (const message of errors) console.error(`  - ${message}`);
-    console.error(JSON.stringify({ valid: false, errors, warnings }, null, 2));
-    process.exit(1);
-  }
-  for (const message of warnings) console.error(`Warning: ${message}`);
-
   // Honor a selected .tex template variant (cv.template default or --template=<name>),
   // falling back to the base cv-template.tex when no variant exists.
   const texName = (process.argv.find((a) => a.startsWith('--template=')) || '').split('=')[1];
@@ -208,6 +225,25 @@ async function main() {
   }
 
   let template = await readFile(TEMPLATE_PATH_RESOLVED, 'utf-8');
+
+  const { errors, warnings: schemaWarnings } = validatePayload(payload, 'tex');
+  // The base template has no summary, certifications, or extracurricular block,
+  // so those keys warn. A template that contains the placeholder renders them.
+  const renderedHere = new Set(
+    Object.entries({
+      summary: 'SUMMARY',
+      certifications: 'CERTIFICATIONS',
+      extracurricular: 'EXTRACURRICULAR',
+    }).filter(([, token]) => template.includes(`{{${token}}}`)).map(([section]) => section)
+  );
+  const warnings = schemaWarnings.filter((message) => !renderedHere.has(message.split(':')[0]));
+  if (errors.length) {
+    console.error('Invalid CV payload:');
+    for (const message of errors) console.error(`  - ${message}`);
+    console.error(JSON.stringify({ valid: false, errors, warnings }, null, 2));
+    process.exit(1);
+  }
+  for (const message of warnings) console.error(`Warning: ${message}`);
 
   // Drop the optional sections (projects, education) that have no entries, so
   // an absent one leaves no bare header behind. See cv-sections-core.mjs.
@@ -229,9 +265,12 @@ async function main() {
     LINKEDIN_DISPLAY: escapeLatex(linkedinDisplay),
     GITHUB_URL: githubUrl,
     GITHUB_DISPLAY: escapeLatex(githubDisplay),
+    SUMMARY: buildSummary(payload.summary),
     EDUCATION: buildEducation(payload.education),
     EXPERIENCE: buildExperience(payload.experience),
     PROJECTS: buildProjects(payload.projects),
+    CERTIFICATIONS: buildDetailEntries(payload.certifications, 'certifications'),
+    EXTRACURRICULAR: buildDetailEntries(payload.extracurricular, 'extracurricular'),
     AWARDS: buildAwards(payload.awards),
     SKILLS: buildSkills(payload.skills),
   };
