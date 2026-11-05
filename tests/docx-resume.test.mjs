@@ -140,6 +140,17 @@ test('model: heading words and section order follow the markdown exactly', () =>
   assert.deepEqual(model.contact.map((c) => c.label), ['Location', 'Email', 'LinkedIn']);
 });
 
+test('model: an empty section keeps its heading and adds nothing under it', () => {
+  const md = '# Jane\n\n## Certifications\n\n## Skills\n\n- **Go:** yes\n';
+  const built = build(md);
+  assert.deepEqual(built.model.sections.map((s) => [s.title, s.items.length]), [['Certifications', 0], ['Skills', 1]]);
+  const paragraphs = extractDocxParagraphs(built.buffer);
+  const cert = paragraphs.indexOf('CERTIFICATIONS');
+  const skills = paragraphs.indexOf('SKILLS');
+  assert.ok(cert > 0 && skills === cert + 1, paragraphs.join('\n'));
+  assert.equal(compareContent(md, built.buffer, built.model).ok, true);
+});
+
 test('model: sections render in an arbitrary order, with their own wording', () => {
   const md = '# A B\n\n## Education\n\n- X University\n\n## Skills\n\n- **Go:** yes\n\n## Professional Summary\n\nHello there.\n\n## Extracurricular\n\n- Chess club\n';
   const { buffer } = build(md);
@@ -153,6 +164,56 @@ test('model: an entry folds its title and dates onto one line with a right tab',
   assert.ok(paragraphs.includes('Software Engineer | Acme Corp, Toronto, ON\t(Jan 2026 – Present)'), paragraphs.join('\n'));
   assert.ok(paragraphs.includes('Tracker | Job tracker (personal)\t(Mar – Apr 2025)'));
   assert.match(documentXml(buffer), new RegExp(`<w:tab w:val="right" w:pos="${LAYOUT.textWidth}"/>`));
+});
+
+test('model: a bold or italic date line stays a date and is not bold', () => {
+  for (const dates of ['**Jan 2026 – Present**', '__Jan 2026 – Present__', '*Jan 2026 – Present*']) {
+    const md = `# Jane\n\n## Experience\n\n### Acme — Toronto\n\n**Software Engineer**\n${dates}\n\n- x\n`;
+    const built = build(md);
+    const paragraphs = extractDocxParagraphs(built.buffer);
+    assert.ok(paragraphs.includes('Software Engineer | Acme, Toronto\t(Jan 2026 – Present)'), `${dates}\n${paragraphs.join('\n')}`);
+    const entry = documentXml(built.buffer).split('Software Engineer')[1].split('</w:p>')[0];
+    const afterTab = entry.split('<w:tab/>')[1] ?? '';
+    assert.equal(afterTab.includes('<w:b/>'), false, dates);
+    assert.match(afterTab, /<w:i\/>/);
+    assert.match(afterTab, /Jan 2026 – Present/);
+    assert.equal(compareContent(md, built.buffer, built.model).ok, true);
+  }
+  const onlyDate = extractDocxParagraphs(build('# Jane\n\n## Experience\n\n### Acme — Toronto\n\n**Jan 2026 – Present**\n\n- x\n').buffer);
+  assert.ok(onlyDate.includes('Acme | Toronto\t(Jan 2026 – Present)'), onlyDate.join('\n'));
+});
+
+test('pandoc: spans, heading attributes, triple dashes, and double dashes follow cv-markdown', () => {
+  const md = [
+    '# CV -- Jane Smith',
+    '',
+    '## **[Professional Experience]{.smallcaps}** {#experience .unnumbered}',
+    '',
+    '### **Acme Health, Inc.** --- New York, NY (Remote)',
+    '',
+    '**Senior Director, Platform Engineering**\\',
+    '**09/2021 -- Present**',
+    '',
+    '- Shipped [the parser]{.smallcaps}',
+    '',
+    '## Skills',
+    '',
+    '- **Go:** yes',
+    '',
+  ].join('\n');
+  const built = build(md);
+  assert.equal(built.model.name, 'Jane Smith');
+  assert.deepEqual(built.model.sections.map((s) => s.title), ['Professional Experience', 'Skills']);
+  const paragraphs = extractDocxParagraphs(built.buffer);
+  assert.ok(paragraphs.includes('PROFESSIONAL EXPERIENCE'), paragraphs.join('\n'));
+  assert.equal(paragraphs.some((p) => /smallcaps|unnumbered|\{#/.test(p)), false);
+  assert.ok(
+    paragraphs.includes('Senior Director, Platform Engineering | Acme Health, Inc., New York, NY (Remote)\t(09/2021 – Present)'),
+    paragraphs.join('\n'),
+  );
+  assert.ok(paragraphs.includes('Shipped the parser'));
+  const compared = compareContent(md, built.buffer, built.model);
+  assert.deepEqual(compared, { ok: true, missing: [], extra: [] });
 });
 
 test('model: a short sentence that mentions a year stays a sentence', () => {
@@ -196,8 +257,14 @@ test('model: name prefixes, contact shapes, and a later top-level heading', () =
   assert.deepEqual(unlabeled.model.contact, []);
   assert.ok(extractDocxParagraphs(unlabeled.buffer).includes('Email:'));
 
-  const later = parseResume('# Jane\n\n## A\n\n- x\n\n# Later\n\n- y\n');
-  assert.deepEqual(later.sections.map((s) => s.title), ['A', 'Later']);
+  assert.throws(
+    () => parseResume('# Jane\n\n## A\n\n- x\n\n# Later\n\n- y\n'),
+    /Unexpected "#" heading "Later"/,
+  );
+  assert.throws(
+    () => parseResume('# Jane\n\n# **Later**\n\n## A\n\n- x\n'),
+    /Unexpected "#" heading "Later"/,
+  );
 });
 
 test('underscore bold, parenthesized links, and capital sharp S survive in the document', () => {
@@ -232,6 +299,14 @@ test('layout: the document applies the reference values', () => {
   assert.match(xml, new RegExp(`w:before="${LAYOUT.entryBefore}"`), 'entry spacing');
   assert.match(xml, /<w:t xml:space="preserve">PROFESSIONAL SUMMARY<\/w:t>/, 'uppercase headings');
   assert.ok(xml.indexOf('PROFESSIONAL SUMMARY') < xml.indexOf('WORK EXPERIENCE'));
+  const summary = xml.split('>PROFESSIONAL SUMMARY<')[1].split('>WORK EXPERIENCE<')[0];
+  assert.match(summary, new RegExp(`<w:ind w:left="${LAYOUT.bodyIndent}"/>`), 'body indent');
+  assert.match(summary, new RegExp(`w:ascii="${LAYOUT.font}"`), 'body font');
+  assert.match(summary, new RegExp(`<w:sz w:val="${LAYOUT.bodySize}"/>`), 'body size');
+  const experience = xml.split('>WORK EXPERIENCE<')[1].split('>PROJECTS<')[0];
+  assert.match(experience, /<w:numPr><w:ilvl w:val="0"\/><w:numId w:val="1"\/><\/w:numPr>/, 'experience bullets');
+  assert.match(experience, new RegExp(`w:ascii="${LAYOUT.font}"`), 'experience font');
+  assert.match(experience, new RegExp(`<w:sz w:val="${LAYOUT.bodySize}"/>`), 'experience size');
   const afterSkills = xml.split('>SKILLS<')[1] ?? '';
   assert.ok(afterSkills.includes('Languages:') && !afterSkills.includes('<w:numPr>'), 'skills lines carry no bullet glyph');
 });
@@ -275,11 +350,19 @@ test('links: a repeated target is stored once, marked external, and escaped', ()
   assert.equal(/data:/i.test(rels), false);
 });
 
-test('skills: a heading that says skills drops the bullet glyph, including a nested line', () => {
+test('skills: a heading that ends with Skills drops the bullet glyph, including a nested line', () => {
   const xml = documentXml(build('# Jane\n\n## Soft Skills\n\n- **Languages:** Go\n  - extra\n').buffer);
   const after = xml.split('>SOFT SKILLS<')[1] ?? '';
   assert.equal(after.includes('<w:numPr>'), false);
   assert.match(after, new RegExp(`<w:sz w:val="${LAYOUT.skillsSize}"/>`));
+});
+
+test('skills: a heading that merely contains the word keeps normal bullets and body size', () => {
+  const xml = documentXml(build('# Jane\n\n## Communication Skills Training\n\n- Led a workshop\n').buffer);
+  const after = xml.split('>COMMUNICATION SKILLS TRAINING<')[1] ?? '';
+  assert.match(after, /<w:numId w:val="1"\/>/);
+  assert.equal(after.includes(`<w:sz w:val="${LAYOUT.skillsSize}"/>`), false);
+  assert.match(after, new RegExp(`<w:sz w:val="${LAYOUT.bodySize}"/>`));
 });
 
 test('links: email and domains become hyperlinks; unsafe schemes do not', () => {
