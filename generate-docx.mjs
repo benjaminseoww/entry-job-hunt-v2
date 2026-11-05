@@ -8,9 +8,9 @@
  *
  * Headings and section order come from the markdown exactly as written; the
  * template supplies only the look (see lib/docx-resume.mjs for the three
- * layout-only differences). After writing, the document is read back and its
- * words are compared with the markdown in both directions. Any difference is
- * a failure: the file is removed and the exit code is 1.
+ * layout-only differences). The document is read back and its words are
+ * compared with the markdown in both directions before anything is written.
+ * Any difference is a failure and the exit code is 1.
  *
  * This script writes the .docx only. It does not touch the tracker, the PDF
  * index or any report; wiring those is a later step.
@@ -19,7 +19,7 @@
  * markdown, content mismatch, unwritable output).
  */
 
-import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, realpathSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, realpathSync, lstatSync, readlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,8 +36,8 @@ const USAGE = `Usage:
 
 Renders a tailored resume markdown file as a Word document. Headings and
 section order are taken from the markdown unchanged; the template supplies the
-look only. The output is read back and compared with the markdown; any word
-gained or lost fails the run and removes the file.
+look only. The output is compared with the markdown before it is written; any
+word gained or lost fails the run and writes nothing.
 
   --template=NAME  template under templates/docx/ (default: garamond)
   --json           print the result as JSON
@@ -71,8 +71,22 @@ export function generateDocx({ input, output, template = 'garamond' }) {
   if (extname(output).toLowerCase() !== '.docx') return { ok: false, error: `Output must end in .docx: ${output}` };
   const out = resolve(output);
   const allowed = [PROJECT_ROOT, getCareerOpsRoot(), tmpdir()].map(realOrSelf);
-  if (!allowed.some((root) => inside(root, nearestRealAncestor(dirname(out))))) {
+  const outside = (target) => !allowed.some((root) => inside(root, target));
+  if (outside(nearestRealAncestor(dirname(out)))) {
     return { ok: false, error: 'Refusing to write the .docx outside the project directory' };
+  }
+  // writeFileSync follows a symlink. A link whose target sits outside the
+  // allowed roots would otherwise pass the parent-directory check above.
+  try {
+    if (lstatSync(out).isSymbolicLink()) {
+      const landing = resolve(dirname(out), readlinkSync(out));
+      const probe = existsSync(landing) ? realOrSelf(landing) : landing;
+      if (outside(probe)) {
+        return { ok: false, error: 'Refusing to write the .docx outside the project directory' };
+      }
+    }
+  } catch {
+    // The output path does not exist yet, so there is no link to follow.
   }
   if (!existsSync(input)) return { ok: false, error: `Input not found: ${input}` };
 
