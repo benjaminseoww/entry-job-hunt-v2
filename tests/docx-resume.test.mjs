@@ -1,18 +1,62 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { crc32, readZip, writeZip } from '../lib/docx-zip.mjs';
 import {
   LAYOUT, TEMPLATE_PARTS, buildDocx, compareContent, extractDocxParagraphs, parseBlocks, parseInline, parseResume,
 } from '../lib/docx-resume.mjs';
+import { getCareerOpsRoot } from '../path-resolver.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const TEMPLATE_DIR = join(ROOT, 'templates', 'docx', 'garamond');
 const readTemplatePart = (p) => readFileSync(join(TEMPLATE_DIR, p));
+
+function realOrSelf(p) {
+  try { return realpathSync(p); } catch { return resolve(p); }
+}
+
+function isInside(root, target) {
+  const r = resolve(root);
+  const t = resolve(target);
+  return t === r || t.startsWith(r.endsWith(sep) ? r : r + sep);
+}
+
+/**
+ * A directory the generator must refuse: not the project, not the data root,
+ * and not os.tmpdir(). Hard-coding `/tmp` fails both ways — Windows has no
+ * `/tmp`, and on Linux `tmpdir()` *is* `/tmp`, so a write there is allowed.
+ */
+function mkdtempOutsideAllowed(prefix = 'career-ops-docx-outside-') {
+  const allowed = [ROOT, getCareerOpsRoot(), tmpdir()].map(realOrSelf);
+  const errors = [];
+  for (const base of [resolve(tmpdir(), '..'), resolve(ROOT, '..'), homedir()]) {
+    try {
+      const dir = mkdtempSync(join(base, prefix));
+      const real = realOrSelf(dir);
+      if (allowed.some((root) => isInside(root, real))) {
+        rmSync(dir, { recursive: true, force: true });
+        continue;
+      }
+      return dir;
+    } catch (error) {
+      errors.push(`${base}: ${error.message}`);
+    }
+  }
+  throw new Error(`could not create a temp dir outside allowed write roots (${errors.join('; ')})`);
+}
+
+function withTempDir(fn) {
+  const dir = mkdtempSync(join(tmpdir(), 'docx-cli-'));
+  try {
+    return fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 const MD = `# CV -- Jane Smith
 
@@ -401,6 +445,15 @@ test('input: a document with no name heading or with stray leading content is re
   assert.throws(() => parseResume('# Name\n\nstuff\n\n### Entry\n'), /Content found before the first "## Section"/);
 });
 
+test('examples/cv-example.md renders and verifies', () => {
+  const md = readFileSync(join(ROOT, 'examples', 'cv-example.md'), 'utf8');
+  const built = build(md);
+  assert.deepEqual(compareContent(md, built.buffer, built.model), { ok: true, missing: [], extra: [] });
+  const order = (md.match(/^## .+$/gm) ?? []).map((h) => h.slice(3).trim().toUpperCase());
+  const rendered = extractDocxParagraphs(built.buffer).filter((p) => order.includes(p));
+  assert.deepEqual(rendered, order, 'section order must equal examples/cv-example.md');
+});
+
 test('real cv.md renders and verifies', { skip: !existsSync(join(ROOT, 'cv.md')) }, () => {
   const md = readFileSync(join(ROOT, 'cv.md'), 'utf8');
   const built = build(md);
@@ -415,106 +468,137 @@ function run(args) {
 }
 
 test('cli: writes a verified .docx and reports it', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'docx-cli-'));
-  const input = join(dir, 'tailored.md');
-  const output = join(dir, 'out', 'cv.docx');
-  writeFileSync(input, MD);
-  const r = run([input, output, '--json']);
-  assert.equal(r.status, 0, r.stderr);
-  const result = JSON.parse(r.stdout);
-  assert.equal(result.ok, true);
-  assert.equal(result.sections, 4);
-  assert.ok(existsSync(output));
-  assert.deepEqual(readZip(readFileSync(output)).get('word/document.xml') !== undefined, true);
+  withTempDir((dir) => {
+    const input = join(dir, 'tailored.md');
+    const output = join(dir, 'out', 'cv.docx');
+    writeFileSync(input, MD);
+    const r = run([input, output, '--json']);
+    assert.equal(r.status, 0, r.stderr);
+    const result = JSON.parse(r.stdout);
+    assert.equal(result.ok, true);
+    assert.equal(result.sections, 4);
+    assert.ok(existsSync(output));
+    assert.deepEqual(readZip(readFileSync(output)).get('word/document.xml') !== undefined, true);
+  });
 });
 
 test('cli: refuses unsupported markdown and leaves no file', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'docx-cli-'));
-  const input = join(dir, 'bad.md');
-  const output = join(dir, 'cv.docx');
-  writeFileSync(input, '# N\n\n## S\n\n| a | b |\n');
-  const r = run([input, output]);
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /Unsupported markdown \(table\)/);
-  assert.ok(!existsSync(output));
+  withTempDir((dir) => {
+    const input = join(dir, 'bad.md');
+    const output = join(dir, 'cv.docx');
+    writeFileSync(input, '# N\n\n## S\n\n| a | b |\n');
+    const r = run([input, output]);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /Unsupported markdown \(table\)/);
+    assert.ok(!existsSync(output));
+  });
 });
 
 test('cli: refuses a wrong extension, a missing input, an unknown template and a stray flag', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'docx-cli-'));
-  const input = join(dir, 'ok.md');
-  writeFileSync(input, MD);
-  assert.match(run([input, join(dir, 'cv.pdf')]).stderr, /must end in \.docx/);
-  assert.match(run([join(dir, 'nope.md'), join(dir, 'cv.docx')]).stderr, /Input not found/);
-  assert.match(run([input, join(dir, 'cv.docx'), '--template=missing']).stderr, /Template not found/);
-  assert.match(run([input, join(dir, 'cv.docx'), '--template=../x']).stderr, /Invalid template name/);
-  const stray = run([input, join(dir, 'cv.docx'), '--bogus']);
-  assert.notEqual(stray.status, 0);
+  withTempDir((dir) => {
+    const input = join(dir, 'ok.md');
+    writeFileSync(input, MD);
+    assert.match(run([input, join(dir, 'cv.pdf')]).stderr, /must end in \.docx/);
+    assert.match(run([join(dir, 'nope.md'), join(dir, 'cv.docx')]).stderr, /Input not found/);
+    assert.match(run([input, join(dir, 'cv.docx'), '--template=missing']).stderr, /Template not found/);
+    assert.match(run([input, join(dir, 'cv.docx'), '--template=../x']).stderr, /Invalid template name/);
+    const stray = run([input, join(dir, 'cv.docx'), '--bogus']);
+    assert.notEqual(stray.status, 0);
+  });
 });
 
 test('cli: refuses to write outside the project, data root and temp directory', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'docx-cli-'));
-  const input = join(dir, 'ok.md');
-  writeFileSync(input, MD);
-  const r = run([input, '/etc/career-ops-docx-test.docx']);
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /outside the project directory/);
-  assert.ok(!existsSync('/etc/career-ops-docx-test.docx'));
+  withTempDir((dir) => {
+    const input = join(dir, 'ok.md');
+    writeFileSync(input, MD);
+    const outside = mkdtempOutsideAllowed();
+    try {
+      const output = join(outside, 'cv.docx');
+      const r = run([input, output]);
+      assert.equal(r.status, 1, r.stderr);
+      assert.match(r.stderr, /outside the project directory/);
+      assert.ok(!existsSync(output));
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
 });
 
 test('cli: plain output, a spaced template flag, help, an uppercase extension, and overwrite', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'docx-cli-'));
-  const input = join(dir, 'ok.md');
-  const output = join(dir, 'CV.DOCX');
-  writeFileSync(input, MD);
-  writeFileSync(output, 'OLD');
-  const plain = run([input, output, '--template', 'garamond']);
-  assert.equal(plain.status, 0, plain.stderr);
-  assert.match(plain.stdout, new RegExp(`Wrote ${output.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\(\\d+ bytes, 4 sections\\)`));
-  assert.equal(plain.stdout.trim().startsWith('{'), false);
-  assert.ok(extractDocxParagraphs(readFileSync(output)).includes('Jane Smith'));
+  withTempDir((dir) => {
+    const input = join(dir, 'ok.md');
+    const output = join(dir, 'CV.DOCX');
+    writeFileSync(input, MD);
+    writeFileSync(output, 'OLD');
+    const plain = run([input, output, '--template', 'garamond']);
+    assert.equal(plain.status, 0, plain.stderr);
+    assert.match(plain.stdout, new RegExp(`Wrote ${output.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\(\\d+ bytes, 4 sections\\)`));
+    assert.equal(plain.stdout.trim().startsWith('{'), false);
+    assert.ok(extractDocxParagraphs(readFileSync(output)).includes('Jane Smith'));
 
-  const again = run([input, output]);
-  assert.equal(again.status, 0, again.stderr);
-  assert.ok(extractDocxParagraphs(readFileSync(output)).includes('Jane Smith'));
+    const again = run([input, output]);
+    assert.equal(again.status, 0, again.stderr);
+    assert.ok(extractDocxParagraphs(readFileSync(output)).includes('Jane Smith'));
 
-  const help = run(['--help']);
-  assert.equal(help.status, 0, help.stderr);
-  assert.match(help.stdout, /Usage:/);
-  assert.match(help.stdout, /--template=NAME/);
+    const help = run(['--help']);
+    assert.equal(help.status, 0, help.stderr);
+    assert.match(help.stdout, /Usage:/);
+    assert.match(help.stdout, /--template=NAME/);
+  });
 });
 
 test('cli: a symlinked parent, a symlinked file, and a data-root override', () => {
-  const inputDir = mkdtempSync(join(tmpdir(), 'docx-cli-'));
-  const input = join(inputDir, 'ok.md');
-  writeFileSync(input, MD);
-  const outside = mkdtempSync('/tmp/career-ops-docx-outside-');
-  const scratch = mkdtempSync(join(tmpdir(), 'docx-cli-link-'));
-  try {
-    const linkedParent = join(scratch, 'parent');
-    symlinkSync(outside, linkedParent);
-    const viaParent = run([input, join(linkedParent, 'cv.docx')]);
-    assert.equal(viaParent.status, 1, viaParent.stderr);
-    assert.match(viaParent.stderr, /outside the project directory/);
-    assert.ok(!existsSync(join(outside, 'cv.docx')));
+  withTempDir((inputDir) => {
+    const input = join(inputDir, 'ok.md');
+    writeFileSync(input, MD);
+    const outside = mkdtempOutsideAllowed();
+    const scratch = mkdtempSync(join(tmpdir(), 'docx-cli-link-'));
+    try {
+      const linkedParent = join(scratch, 'parent');
+      let dirLink = true;
+      try {
+        symlinkSync(outside, linkedParent, 'junction');
+      } catch (error) {
+        dirLink = false;
+        if (error.code !== 'EPERM' && error.code !== 'EACCES') throw error;
+      }
+      if (dirLink) {
+        const viaParent = run([input, join(linkedParent, 'cv.docx')]);
+        assert.equal(viaParent.status, 1, viaParent.stderr);
+        assert.match(viaParent.stderr, /outside the project directory/);
+        assert.ok(!existsSync(join(outside, 'cv.docx')));
+      }
 
-    const linkedFile = join(scratch, 'cv.docx');
-    symlinkSync(join(outside, 'escaped.docx'), linkedFile);
-    const viaFile = run([input, linkedFile]);
-    assert.equal(viaFile.status, 1, viaFile.stderr);
-    assert.match(viaFile.stderr, /outside the project directory/);
-    assert.ok(!existsSync(join(outside, 'escaped.docx')));
+      const linkedFile = join(scratch, 'cv.docx');
+      let fileLink = true;
+      try {
+        symlinkSync(join(outside, 'escaped.docx'), linkedFile);
+      } catch (error) {
+        fileLink = false;
+        if (error.code !== 'EPERM' && error.code !== 'EACCES') throw error;
+      }
+      if (fileLink) {
+        const viaFile = run([input, linkedFile]);
+        assert.equal(viaFile.status, 1, viaFile.stderr);
+        assert.match(viaFile.stderr, /outside the project directory/);
+        assert.ok(!existsSync(join(outside, 'escaped.docx')));
+      }
 
-    const dataRoot = mkdtempSync('/tmp/career-ops-docx-data-');
-    const allowed = join(dataRoot, 'cv.docx');
-    const viaRoot = spawnSync(process.execPath, [join(ROOT, 'generate-docx.mjs'), input, allowed], {
-      encoding: 'utf8',
-      env: { ...process.env, CAREER_OPS_ROOT: dataRoot },
-    });
-    assert.equal(viaRoot.status, 0, viaRoot.stderr);
-    assert.ok(existsSync(allowed));
-    rmSync(dataRoot, { recursive: true, force: true });
-  } finally {
-    rmSync(outside, { recursive: true, force: true });
-    rmSync(scratch, { recursive: true, force: true });
-  }
+      const dataRoot = mkdtempOutsideAllowed('career-ops-docx-data-');
+      try {
+        const allowed = join(dataRoot, 'cv.docx');
+        const viaRoot = spawnSync(process.execPath, [join(ROOT, 'generate-docx.mjs'), input, allowed], {
+          encoding: 'utf8',
+          env: { ...process.env, CAREER_OPS_ROOT: dataRoot },
+        });
+        assert.equal(viaRoot.status, 0, viaRoot.stderr);
+        assert.ok(existsSync(allowed));
+      } finally {
+        rmSync(dataRoot, { recursive: true, force: true });
+      }
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
 });
