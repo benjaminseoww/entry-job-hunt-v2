@@ -32,7 +32,7 @@ import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { format } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { resolveTsvColumns, resolveColumns, parseTrackerRow, HEADER_ALIASES, extractCellUrl } from '../tracker-parse.mjs';
+import { resolveTsvColumns, resolveColumns, parseTrackerRow, HEADER_ALIASES, extractCellUrl, isPlaceholderPdfCell, isReadyPdfCell, pdfCellLeftAsIsWarning } from '../tracker-parse.mjs';
 import { normalizeUrl } from '../url-key.mjs';
 import { canonicalizeTrackerPath } from '../path-resolver.mjs';
 import { mergeTracker } from '../merge-tracker.mjs';
@@ -595,6 +595,48 @@ test('resolveColumns: | Word | maps onto the pdf field', () => {
   assert.equal(row.pdf, '✅');
   assert.equal(row.status, 'Applied');
   assert.equal(row.notes, 'seed row');
+});
+
+test('isPlaceholderPdfCell: FE0F-tolerant placeholders; leave-alones stay false', () => {
+  const placeholders = ['', '  ', '❌', '❌\uFE0F', '—', '-', '\u00A0'];
+  const leaveAlones = [
+    '✅', '✅\uFE0F', '[Word](../output/x.docx)', '[docx](../output/x.docx)',
+    '✔', '✔\uFE0F', '–', '--', 'N/A', 'no', 'x', 'X', '\u200B',
+  ];
+  for (const v of placeholders) {
+    assert.equal(isPlaceholderPdfCell(v), true, `placeholder ${JSON.stringify(v)}`);
+  }
+  for (const v of leaveAlones) {
+    assert.equal(isPlaceholderPdfCell(v), false, `leave-alone ${JSON.stringify(v)}`);
+  }
+  assert.equal(isReadyPdfCell('✅'), true);
+  assert.equal(isReadyPdfCell('✅\uFE0F'), true);
+  assert.equal(isReadyPdfCell('❌'), false);
+  assert.match(pdfCellLeftAsIsWarning(1, '[Word](../output/x.docx)'), /left as is \(run docx-backfill\)/);
+  assert.match(pdfCellLeftAsIsWarning(1, 'N/A'), /unrecognised PDF\/Word cell value/);
+  assert.doesNotMatch(pdfCellLeftAsIsWarning(1, 'N/A'), /docx-backfill/);
+});
+
+test('merge-tracker: a [Word](…) cell survives a report-changing re-eval byte-for-byte', async (t) => {
+  const WORD_CELL = '[Word](../output/cv-acme.docx)';
+  const tracker = `# Applications Tracker
+
+| # | Date | Company | Role | Score | Status | Word | Report | Notes |
+|---|------|---------|------|-------|--------|------|--------|-------|
+| 1 | 2026-01-01 | Acme | Engineer | 4.5/5 | Evaluated | ${WORD_CELL} | [1](reports/001-acme-2026-01-01.md) | first |
+`;
+  const sb = makeSandbox(tracker, {
+    '002-acme.tsv': '2\t2026-02-01\tAcme\tEngineer\tEvaluated\t3.9/5\t❌\t[2](reports/002-acme-2026-02-01.md)\tre-eval\n',
+  });
+  t.after(() => removeSandbox(sb));
+  const res = await merge(sb);
+  assert.equal(res.code, 0, res.stdout);
+  const after = dataRows(sb.tracker).find(l => l.includes('Acme'));
+  assert.ok(after, 're-eval must keep the Acme row');
+  const cells = cellsOf(after);
+  assert.equal(cells[7], WORD_CELL);
+  assert.match(cells[8], /^\[2\]/);
+  assert.match(res.stdout, /left as is \(run docx-backfill\)/);
 });
 
 // ── Test 9: parseTrackerRow surfaces the Via column ─────────────────────────

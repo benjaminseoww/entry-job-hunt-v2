@@ -63,6 +63,17 @@ export const HEADER_ALIASES = (() => {
 export const SCORE_CELL_RE = /^\d+(?:\.\d+)?\/5$/;
 
 /**
+ * Trim and strip U+FE0F (emoji variation selector-16) so ✅️/❌️ compare as
+ * ✅/❌. The dashboard already treats ✅️ as HasPDF. Does not fold ✔/✔️,
+ * en dash, `--`, N/A, no, x/X, or zero-width space.
+ * @param {string} [v]
+ * @returns {string}
+ */
+export function normalizePdfCell(v) {
+  return String(v ?? '').trim().replace(/\uFE0F/g, '');
+}
+
+/**
  * Cells the PDF/Word writers may flip to ✅. Empty, ❌, — and - are the
  * tracker's "not ready" placeholders. Anything else (a `[Word](…)` /
  * `[docx](…)` link) is left alone so docx-backfill can still find the file.
@@ -70,8 +81,13 @@ export const SCORE_CELL_RE = /^\d+(?:\.\d+)?\/5$/;
  * @returns {boolean}
  */
 export function isPlaceholderPdfCell(v) {
-  const t = String(v ?? '').trim();
+  const t = normalizePdfCell(v);
   return t === '' || t === '❌' || t === '—' || t === '-';
+}
+
+/** @param {string} [v] @returns {boolean} whether the cell is a ready ✅ (FE0F-tolerant). */
+export function isReadyPdfCell(v) {
+  return normalizePdfCell(v) === '✅';
 }
 
 /** @param {string} v @returns {boolean} whether the cell reads as a score. */
@@ -491,6 +507,20 @@ export function parseMarkdownLinks(value) {
  */
 export function firstLinkTarget(value) {
   return scanMarkdownLinks(String(value ?? ''))[0]?.target ?? null;
+}
+
+/**
+ * Warning when a writer leaves a non-placeholder PDF/Word cell untouched.
+ * Mentions docx-backfill only for a markdown-link cell.
+ * @param {string|number} num
+ * @param {string} cell
+ * @returns {string}
+ */
+export function pdfCellLeftAsIsWarning(num, cell) {
+  const reason = firstLinkTarget(cell) != null
+    ? 'left as is (run docx-backfill)'
+    : 'left as is (unrecognised PDF/Word cell value)';
+  return `⚠️ #${num}: PDF/Word cell holds "${cell}", ${reason}`;
 }
 
 /**

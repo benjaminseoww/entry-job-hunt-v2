@@ -417,11 +417,18 @@ const TRACKER_DUP_REPORT = `# Applications Tracker
     const r = runMarkPdfReady(['1', '--json'], sb);
     let parsed = null;
     try { parsed = JSON.parse(r.stdout); } catch { /* asserted below */ }
-    if (r.code === 0 && parsed?.changed === false && readTracker(sb) === WORD_LINK
-        && /left as is \(run docx-backfill\)/.test(r.stderr)) {
+    const jsonOk = r.code === 0 && parsed?.changed === false
+      && parsed?.skipped === 'non-placeholder-cell'
+      && parsed?.cell === '[Word](../output/x.docx)'
+      && readTracker(sb) === WORD_LINK
+      && /left as is \(run docx-backfill\)/.test(r.stderr);
+    const plain = runMarkPdfReady(['1'], sb);
+    const plainOk = plain.code === 0 && readTracker(sb) === WORD_LINK
+      && /left PDF\/Word cell as is/.test(plain.stdout);
+    if (jsonOk && plainOk) {
       pass('word-link: mark-pdf-ready leaves a [Word](…) cell byte-identical');
     } else {
-      fail(`word-link: code=${r.code} json=${JSON.stringify(parsed)} unchanged=${readTracker(sb) === WORD_LINK}\n${r.stdout}${r.stderr}`);
+      fail(`word-link: code=${r.code} json=${JSON.stringify(parsed)} unchanged=${readTracker(sb) === WORD_LINK}\njson stdout=${r.stdout}${r.stderr}\nplain stdout=${plain.stdout}${plain.stderr}`);
     }
   } finally {
     rmSync(sb.dir, { recursive: true, force: true });

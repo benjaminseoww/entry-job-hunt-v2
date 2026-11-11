@@ -35,7 +35,7 @@
  */
 
 import { readFileSync, existsSync } from 'fs';
-import { extractTrackerReportNumbers, resolveColumns, parseTrackerRow, isPlaceholderPdfCell } from './tracker-parse.mjs';
+import { extractTrackerReportNumbers, resolveColumns, parseTrackerRow, isPlaceholderPdfCell, isReadyPdfCell, pdfCellLeftAsIsWarning } from './tracker-parse.mjs';
 import {
   rebuildRow, resolveTrackerPath, writeFileAtomic, CLI_EXIT, makeCliFailWith, makeCliFailUsage, acquireTrackerLockForCli,
 } from './tracker-utils.mjs';
@@ -143,11 +143,11 @@ const target = matches[0];
 
 // ── locked read-modify-write ─────────────────────────────────────
 
-const alreadyReady = target.pdf.trim() === '✅';
+const alreadyReady = isReadyPdfCell(target.pdf);
 const skippedLink = !alreadyReady && !isPlaceholderPdfCell(target.pdf);
 if (skippedLink) {
   // A [Word](…) / [docx](…) link is the path docx-backfill needs.
-  console.warn(`⚠️ #${target.num}: PDF/Word cell holds "${target.pdf}", left as is (run docx-backfill)`);
+  console.warn(pdfCellLeftAsIsWarning(target.num, target.pdf));
 }
 // Matches set-status.mjs's contract: `changed` reflects whether a write WOULD
 // happen, computed independent of --dry-run, so a preview call can tell "would
@@ -176,13 +176,16 @@ const result = {
   company: target.company,
   role: target.role,
   reportNum: targetReportNum,
+  ...(skippedLink ? { skipped: 'non-placeholder-cell', cell: target.pdf } : {}),
   ...(flags.dryRun ? { dryRun: true } : {}),
   tracker: APPS_FILE,
 };
 
 if (flags.json) {
   console.log(JSON.stringify(result, null, 2));
-} else if (!skippedLink) {
+} else if (skippedLink) {
+  console.log(`⚠️ #${target.num} ${target.company} — ${target.role}: left PDF/Word cell as is`);
+} else {
   const verb = flags.dryRun ? (alreadyReady ? 'already' : 'would mark') : changed ? 'marked' : 'already';
   console.log(`✅ #${target.num} ${target.company} — ${target.role}: ${verb} PDF ready`);
 }
