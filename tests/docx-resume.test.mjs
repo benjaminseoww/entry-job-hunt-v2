@@ -1,13 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { generateDocx } from '../generate-docx.mjs';
 import { crc32, readZip, writeZip } from '../lib/docx-zip.mjs';
 import {
-  LAYOUT, TEMPLATE_PARTS, buildDocx, compareContent, extractDocxParagraphs, parseBlocks, parseInline, parseResume,
+  LAYOUT, TEMPLATE_PARTS, buildDocx, compareContent, extractDocxParagraphs, parseBlocks, parseInline, parseResume, stripInlineMarkers, words,
 } from '../lib/docx-resume.mjs';
 import { getCareerOpsRoot } from '../path-resolver.mjs';
 
@@ -158,6 +159,24 @@ test('inline: bold, italic, links, code and escapes', () => {
   assert.equal(wiki[0].link, 'https://en.wikipedia.org/wiki/Foo_(bar)');
 });
 
+test('inline: underscores do not fire inside a word and a star closer cannot follow a space', () => {
+  assert.equal(parseInline('my__var__name and __init__').map((r) => r.text).join(''), 'my__var__name and init');
+  assert.equal(parseInline('my__var__name').map((r) => r.text).join(''), 'my__var__name');
+  assert.equal(parseInline('*nix and *BSD').map((r) => r.text).join(''), '*nix and *BSD');
+  assert.equal(stripInlineMarkers('my__var__name and __init__'), 'my__var__name and init');
+  assert.equal(stripInlineMarkers('*nix and *BSD'), '*nix and *BSD');
+  const md = '# Jane\n\n## Work\n\n- my__var__name and __init__\n- *nix and *BSD\n';
+  const built = build(md);
+  const paragraphs = extractDocxParagraphs(built.buffer);
+  assert.ok(paragraphs.some((p) => p.includes('my__var__name')), paragraphs.join('\n'));
+  assert.ok(paragraphs.some((p) => p.includes('*nix') && p.includes('*BSD')), paragraphs.join('\n'));
+  assert.deepEqual(compareContent(md, built.buffer, built.model), { ok: true, missing: [], extra: [] });
+});
+
+test('words: NFKC so a ligature matches its letters', () => {
+  assert.deepEqual(words('ﬁle'), ['file']);
+});
+
 test('blocks: refuses tables, code fences, images, blockquotes and numbered lists', () => {
   for (const bad of ['| a | b |', '```js', '![x](y.png)', '> quote', '1. First', '2) Second']) {
     assert.throws(() => parseBlocks(`# N\n\n## S\n\n${bad}\n`), /Unsupported markdown/, bad);
@@ -175,6 +194,12 @@ test('blocks: rules, comments, wrapped lines and Windows newlines', () => {
   const built = build('# Jane\n\n## Work\n\n- Built parsers\n  for messy data\n\n<!-- secretword -->\n');
   assert.equal(compareContent('# Jane\n\n## Work\n\n- Built parsers\n  for messy data\n\n<!-- secretword -->\n', built.buffer, built.model).ok, true);
   assert.equal(extractDocxParagraphs(built.buffer).some((p) => p.includes('secretword')), false);
+});
+
+test('blocks: a wrapped line that starts with a year is prose, not a numbered list', () => {
+  const blocks = parseBlocks('# Jane\n\n## Work\n\n- Shipped it.\n  2024. Then scaled it.\n');
+  assert.equal(blocks.filter((b) => b.type === 'bullet')[0].text, 'Shipped it. 2024. Then scaled it.');
+  assert.doesNotThrow(() => parseBlocks('# Jane\n\n## Work\n\nHello.\n2024. Then more.\n'));
 });
 
 test('model: heading words and section order follow the markdown exactly', () => {
@@ -225,6 +250,10 @@ test('model: a bold or italic date line stays a date and is not bold', () => {
   }
   const onlyDate = extractDocxParagraphs(build('# Jane\n\n## Experience\n\n### Acme — Toronto\n\n**Jan 2026 – Present**\n\n- x\n').buffer);
   assert.ok(onlyDate.includes('Acme | Toronto\t(Jan 2026 – Present)'), onlyDate.join('\n'));
+  const summer = extractDocxParagraphs(build('# Jane\n\n## Experience\n\n### Acme — Toronto\n\n**Intern**\nSummer 2024\n\n- x\n').buffer);
+  assert.ok(summer.includes('Intern | Acme, Toronto\t(Summer 2024)'), summer.join('\n'));
+  const expected = extractDocxParagraphs(build('# Jane\n\n## Experience\n\n### Acme — Toronto\n\n**Intern**\nExpected May 2027\n\n- x\n').buffer);
+  assert.ok(expected.includes('Intern | Acme, Toronto\t(Expected May 2027)'), expected.join('\n'));
 });
 
 test('pandoc: spans, heading attributes, triple dashes, and double dashes follow cv-markdown', () => {
@@ -457,7 +486,7 @@ test('examples/cv-example.md renders and verifies', () => {
 test('real cv.md renders and verifies', { skip: !existsSync(join(ROOT, 'cv.md')) }, () => {
   const md = readFileSync(join(ROOT, 'cv.md'), 'utf8');
   const built = build(md);
-  assert.deepEqual(compareContent(md, built.buffer, built.model).ok, true);
+  assert.deepEqual(compareContent(md, built.buffer, built.model), { ok: true, missing: [], extra: [] });
   const order = (md.match(/^## .+$/gm) ?? []).map((h) => h.slice(3).trim().toUpperCase());
   const rendered = extractDocxParagraphs(built.buffer).filter((p) => order.includes(p));
   assert.deepEqual(rendered, order, 'section order must equal cv.md');
@@ -547,7 +576,63 @@ test('cli: plain output, a spaced template flag, help, an uppercase extension, a
   });
 });
 
-test('cli: a symlinked parent, a symlinked file, and a data-root override', () => {
+test('cli: a failed write does not delete an existing .docx', () => {
+  withTempDir((dir) => {
+    const input = join(dir, 'ok.md');
+    const output = join(dir, 'cv.docx');
+    writeFileSync(input, MD);
+    writeFileSync(output, 'OLD-BYTES');
+    const trap = join(dir, `.cv.docx.${process.pid}.tmp`);
+    mkdirSync(trap);
+    try {
+      const result = generateDocx({ input, output });
+      assert.equal(result.ok, false, result.error);
+      assert.match(result.error, /Could not write/);
+      assert.equal(readFileSync(output, 'utf8'), 'OLD-BYTES');
+    } finally {
+      rmSync(trap, { recursive: true, force: true });
+    }
+  });
+});
+
+test('cli: a dangling symlink through a linked directory does not write outside', (t) => {
+  withTempDir((scratch) => {
+    const input = join(scratch, 'ok.md');
+    writeFileSync(input, MD);
+    const outside = mkdtempOutsideAllowed();
+    try {
+      const linkdir = join(scratch, 'linkdir');
+      try {
+        symlinkSync(outside, linkdir, 'junction');
+      } catch (error) {
+        if (error.code === 'EPERM' || error.code === 'EACCES') {
+          t.skip(`symlink unsupported: ${error.code}`);
+          return;
+        }
+        throw error;
+      }
+      const output = join(scratch, 'cv.docx');
+      try {
+        symlinkSync(join('linkdir', 'pwned.docx'), output);
+      } catch (error) {
+        if (error.code === 'EPERM' || error.code === 'EACCES') {
+          t.skip(`symlink unsupported: ${error.code}`);
+          return;
+        }
+        throw error;
+      }
+      const r = run([input, output]);
+      assert.ok(!existsSync(join(outside, 'pwned.docx')), 'must not follow the dangling chain');
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(lstatSync(output).isSymbolicLink(), false);
+      assert.ok(extractDocxParagraphs(readFileSync(output)).includes('Jane Smith'));
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+});
+
+test('cli: a symlinked parent is refused', (t) => {
   withTempDir((inputDir) => {
     const input = join(inputDir, 'ok.md');
     writeFileSync(input, MD);
@@ -555,50 +640,72 @@ test('cli: a symlinked parent, a symlinked file, and a data-root override', () =
     const scratch = mkdtempSync(join(tmpdir(), 'docx-cli-link-'));
     try {
       const linkedParent = join(scratch, 'parent');
-      let dirLink = true;
       try {
         symlinkSync(outside, linkedParent, 'junction');
       } catch (error) {
-        dirLink = false;
-        if (error.code !== 'EPERM' && error.code !== 'EACCES') throw error;
+        if (error.code === 'EPERM' || error.code === 'EACCES') {
+          t.skip(`symlink unsupported: ${error.code}`);
+          return;
+        }
+        throw error;
       }
-      if (dirLink) {
-        const viaParent = run([input, join(linkedParent, 'cv.docx')]);
-        assert.equal(viaParent.status, 1, viaParent.stderr);
-        assert.match(viaParent.stderr, /outside the project directory/);
-        assert.ok(!existsSync(join(outside, 'cv.docx')));
-      }
+      const viaParent = run([input, join(linkedParent, 'cv.docx')]);
+      assert.equal(viaParent.status, 1, viaParent.stderr);
+      assert.match(viaParent.stderr, /outside the project directory/);
+      assert.ok(!existsSync(join(outside, 'cv.docx')));
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+});
 
+test('cli: a symlinked file is refused or replaced in place, never followed', (t) => {
+  withTempDir((inputDir) => {
+    const input = join(inputDir, 'ok.md');
+    writeFileSync(input, MD);
+    const outside = mkdtempOutsideAllowed();
+    const scratch = mkdtempSync(join(tmpdir(), 'docx-cli-file-'));
+    try {
       const linkedFile = join(scratch, 'cv.docx');
-      let fileLink = true;
       try {
         symlinkSync(join(outside, 'escaped.docx'), linkedFile);
       } catch (error) {
-        fileLink = false;
-        if (error.code !== 'EPERM' && error.code !== 'EACCES') throw error;
+        if (error.code === 'EPERM' || error.code === 'EACCES') {
+          t.skip(`symlink unsupported: ${error.code}`);
+          return;
+        }
+        throw error;
       }
-      if (fileLink) {
-        const viaFile = run([input, linkedFile]);
-        assert.equal(viaFile.status, 1, viaFile.stderr);
+      const viaFile = run([input, linkedFile]);
+      assert.ok(!existsSync(join(outside, 'escaped.docx')));
+      if (viaFile.status === 0) {
+        assert.equal(lstatSync(linkedFile).isSymbolicLink(), false);
+      } else {
         assert.match(viaFile.stderr, /outside the project directory/);
-        assert.ok(!existsSync(join(outside, 'escaped.docx')));
-      }
-
-      const dataRoot = mkdtempOutsideAllowed('career-ops-docx-data-');
-      try {
-        const allowed = join(dataRoot, 'cv.docx');
-        const viaRoot = spawnSync(process.execPath, [join(ROOT, 'generate-docx.mjs'), input, allowed], {
-          encoding: 'utf8',
-          env: { ...process.env, CAREER_OPS_ROOT: dataRoot },
-        });
-        assert.equal(viaRoot.status, 0, viaRoot.stderr);
-        assert.ok(existsSync(allowed));
-      } finally {
-        rmSync(dataRoot, { recursive: true, force: true });
       }
     } finally {
       rmSync(outside, { recursive: true, force: true });
       rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+});
+
+test('cli: CAREER_OPS_ROOT allows the data root', () => {
+  withTempDir((inputDir) => {
+    const input = join(inputDir, 'ok.md');
+    writeFileSync(input, MD);
+    const dataRoot = mkdtempOutsideAllowed('career-ops-docx-data-');
+    try {
+      const allowed = join(dataRoot, 'cv.docx');
+      const viaRoot = spawnSync(process.execPath, [join(ROOT, 'generate-docx.mjs'), input, allowed], {
+        encoding: 'utf8',
+        env: { ...process.env, CAREER_OPS_ROOT: dataRoot },
+      });
+      assert.equal(viaRoot.status, 0, viaRoot.stderr);
+      assert.ok(existsSync(allowed));
+    } finally {
+      rmSync(dataRoot, { recursive: true, force: true });
     }
   });
 });

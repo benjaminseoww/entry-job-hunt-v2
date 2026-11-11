@@ -15,13 +15,18 @@
  * This script writes the .docx only. It does not touch the tracker, the PDF
  * index or any report; wiring those is a later step.
  *
+ * Writes go to a temp file in the real parent directory, then renameSync onto
+ * the destination basename. rename replaces a symlink instead of following it,
+ * so a dangling link cannot smuggle the bytes outside the allowed roots, and a
+ * failed write deletes only the temp file, never an existing .docx.
+ *
  * Exit codes: 0 written and verified, 1 failed (bad input, unsupported
  * markdown, content mismatch, unwritable output).
  */
 
-import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, realpathSync, lstatSync, readlinkSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, realpathSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, extname, join, resolve, sep } from 'node:path';
+import { basename, dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateFlags } from './lib/cli-flags.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
@@ -31,6 +36,7 @@ import { buildDocx, compareContent } from './lib/docx-resume.mjs';
 const PROJECT_ROOT = dirname(fileURLToPath(import.meta.url));
 const KNOWN_FLAGS = ['--template', '--json', '--help', '-h'];
 const VALUE_FLAGS = ['--template'];
+const OUTSIDE_ERROR = 'Refusing to write the .docx outside the project directory, data root, or temp directory';
 const USAGE = `Usage:
   node generate-docx.mjs <tailored.md> <out.docx> [--template=garamond] [--json]
 
@@ -53,11 +59,32 @@ function realOrSelf(p) {
   try { return realpathSync(p); } catch { return resolve(p); }
 }
 
+function allowedRoots() {
+  return [PROJECT_ROOT, getCareerOpsRoot(), tmpdir()].map(realOrSelf);
+}
+
+function outsideAllowed(target) {
+  return !allowedRoots().some((root) => inside(root, target));
+}
+
 /** Real path of the nearest existing ancestor, so a symlinked parent cannot hide the true target. */
 function nearestRealAncestor(p) {
   let dir = resolve(p);
   while (!existsSync(dir) && dirname(dir) !== dir) dir = dirname(dir);
   return realOrSelf(dir);
+}
+
+function writeDocxAtomically(realParent, name, buffer) {
+  const tmpPath = join(realParent, `.${name}.${process.pid}.tmp`);
+  const destination = join(realParent, name);
+  try {
+    writeFileSync(tmpPath, buffer, { flag: 'wx' });
+    renameSync(tmpPath, destination);
+  } catch (error) {
+    try { rmSync(tmpPath, { force: true }); } catch { /* never delete the destination */ }
+    throw error;
+  }
+  return destination;
 }
 
 /**
@@ -70,23 +97,10 @@ export function generateDocx({ input, output, template = 'garamond' }) {
   if (!/^[a-z0-9][a-z0-9-]*$/i.test(template)) return { ok: false, error: `Invalid template name: ${template}` };
   if (extname(output).toLowerCase() !== '.docx') return { ok: false, error: `Output must end in .docx: ${output}` };
   const out = resolve(output);
-  const allowed = [PROJECT_ROOT, getCareerOpsRoot(), tmpdir()].map(realOrSelf);
-  const outside = (target) => !allowed.some((root) => inside(root, target));
-  if (outside(nearestRealAncestor(dirname(out)))) {
-    return { ok: false, error: 'Refusing to write the .docx outside the project directory' };
-  }
-  // writeFileSync follows a symlink. A link whose target sits outside the
-  // allowed roots would otherwise pass the parent-directory check above.
-  try {
-    if (lstatSync(out).isSymbolicLink()) {
-      const landing = resolve(dirname(out), readlinkSync(out));
-      const probe = existsSync(landing) ? realOrSelf(landing) : landing;
-      if (outside(probe)) {
-        return { ok: false, error: 'Refusing to write the .docx outside the project directory' };
-      }
-    }
-  } catch {
-    // The output path does not exist yet, so there is no link to follow.
+  const parent = dirname(out);
+  const name = basename(out);
+  if (outsideAllowed(nearestRealAncestor(parent))) {
+    return { ok: false, error: OUTSIDE_ERROR };
   }
   if (!existsSync(input)) return { ok: false, error: `Input not found: ${input}` };
 
@@ -123,13 +137,26 @@ export function generateDocx({ input, output, template = 'garamond' }) {
   }
 
   try {
-    mkdirSync(dirname(out), { recursive: true });
-    writeFileSync(out, built.buffer);
+    mkdirSync(parent, { recursive: true });
   } catch (error) {
-    try { rmSync(out, { force: true }); } catch { /* best effort */ }
     return { ok: false, error: `Could not write ${output}: ${error.message}` };
   }
-  return { ok: true, output: out, bytes: built.buffer.length, sections: built.model.sections.length };
+  let realParent;
+  try {
+    realParent = realpathSync(parent);
+  } catch (error) {
+    return { ok: false, error: `Could not write ${output}: ${error.message}` };
+  }
+  if (outsideAllowed(realParent)) {
+    return { ok: false, error: OUTSIDE_ERROR };
+  }
+
+  try {
+    writeDocxAtomically(realParent, name, built.buffer);
+    return { ok: true, output: out, bytes: built.buffer.length, sections: built.model.sections.length };
+  } catch (error) {
+    return { ok: false, error: `Could not write ${output}: ${error.message}` };
+  }
 }
 
 async function main() {
