@@ -2,4 +2,6 @@
 # update-system.mjs never writes to these; the coverage guard accepts them.
 generate-docx.mjs
 lib/docx-resume.mjs
+lib/docx-text.mjs
 lib/docx-zip.mjs
+modes/docx.md

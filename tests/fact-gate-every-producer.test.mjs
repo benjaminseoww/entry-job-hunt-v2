@@ -29,7 +29,7 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
 // A step that builds or writes a CV. `--preview` and `--test` produce nothing
 // to send.
-const PRODUCER_RE = /node (?:build-cv-html|build-cv-latex|patch-latex-content)\.mjs (?!--preview|--test)|Write to `output\/cv-/;
+const PRODUCER_RE = /node (?:build-cv-html|build-cv-latex|patch-latex-content|generate-docx)\.mjs (?!--preview|--test)|Write to `output\/cv-/;
 // The gate itself, or a renderer that runs it before writing its output.
 const GATE_RE = /node (?:verify-cv-facts|generate-pdf|generate-latex)\.mjs/;
 // Renderers that run the gate in code. Asserted below, so this list cannot
@@ -43,7 +43,7 @@ const modeFiles = () => listTree(join(ROOT, 'modes'), { match: /\.md$/ });
 test('every mode that builds or writes a CV runs the fact gate', () => {
   const producers = modeFiles().filter(path => PRODUCER_RE.test(readFileSync(path, 'utf-8')));
   const names = producers.map(repoPath);
-  for (const expected of ['modes/pdf.md', 'modes/latex.md', 'modes/latex-tex.md', 'modes/text.md', 'modes/ats.md']) {
+  for (const expected of ['modes/pdf.md', 'modes/latex.md', 'modes/latex-tex.md', 'modes/text.md', 'modes/ats.md', 'modes/docx.md']) {
     assert.ok(names.includes(expected), `the producer scan no longer finds ${expected}; fix PRODUCER_RE before trusting this test`);
   }
   const ungated = producers.filter(path => !GATE_RE.test(readFileSync(path, 'utf-8')));

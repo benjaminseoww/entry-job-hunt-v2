@@ -7,14 +7,15 @@
  * shared by PDF generators so every generated document gets the same gate.
  *
  * Usage:
- *   node verify-cv-facts.mjs <generated-cv.html|md|tex>
+ *   node verify-cv-facts.mjs <generated-cv.html|md|tex|docx>
  *   node verify-cv-facts.mjs <generated-cv> --source cv.md --source article-digest.md
  *   node verify-cv-facts.mjs --self-test
  */
 
 import { existsSync, readFileSync } from 'fs';
-import { isAbsolute, join, basename } from 'path';
+import { isAbsolute, join, basename, extname } from 'path';
 import { isMainModule } from './lib/is-main-module.mjs';
+import { extractDocxText } from './lib/docx-text.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 
 // Two roots, because this gate compares user-layer files against a user-layer
@@ -400,6 +401,21 @@ function spellNumbers(text) {
 /** Read a UTF-8 file when it exists, otherwise return an empty string. */
 function readIfExists(path) {
   return existsSync(path) ? readFileSync(path, 'utf-8') : '';
+}
+
+/**
+ * Visible text of a generated CV for the fact gate.
+ *
+ * `.docx` is a zip of XML, so reading it as UTF-8 would feed the gate PK
+ * headers instead of the resume. Everything else (HTML, markdown, LaTeX) is
+ * already text and is read as UTF-8.
+ *
+ * @param {string} path
+ * @returns {string}
+ */
+export function readGeneratedText(path) {
+  if (extname(path).toLowerCase() === '.docx') return extractDocxText(readFileSync(path));
+  return readFileSync(path, 'utf-8');
 }
 
 // Unicode decimal-digit blocks, by the code point of their zero. Every claim
@@ -2268,12 +2284,13 @@ function parseCliArgs(args) {
 
 /** Return the command-line usage text. */
 function usage() {
-  return `Usage: node verify-cv-facts.mjs <generated-document> [--source path] [--config path] [--json]
+  return `Usage: node verify-cv-facts.mjs <generated-document.html|md|tex|docx> [--source path] [--config path] [--json]
        node verify-cv-facts.mjs --self-test
 
 Checks generated candidate-facing text for unsupported metrics and explicitly asserted
 non-metric facts (employers, titles, tools, delegated-work authorship, scope-verb
 inflation, and unsourced adoption claims) absent from source files.
+A .docx is unzipped first and the text of word/document.xml is what gets checked.
 Default sources: cv.md and article-digest.md.
 A cover letter also reads the answers supplied for that letter, which support
 only a number the letter states as a plan. The rendered letter is not a source.
@@ -2877,7 +2894,7 @@ export function runCli(args = process.argv.slice(2)) {
     return 1;
   }
   try {
-    const result = verifyFacts(readFileSync(targetPath, 'utf-8'), {
+    const result = verifyFacts(readGeneratedText(targetPath), {
       sourcePaths: parsed.sourcePaths.length ? parsed.sourcePaths : DEFAULT_SOURCES,
       configPath: parsed.configPath,
     });

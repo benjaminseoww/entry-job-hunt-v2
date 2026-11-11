@@ -36,7 +36,7 @@ check('opt-out key is documented in the rule', section.includes('`session_title:
 
 const scopeLine = section.match(/^- \*\*Scope:\*\* (.*)$/m)?.[1] ?? '';
 const [inScope, outOfScope] = scopeLine.split('Skip');
-for (const mode of ['auto-pipeline', 'oferta', 'pdf', 'apply', 'contacto', 'interview-prep']) {
+for (const mode of ['auto-pipeline', 'oferta', 'pdf', 'docx', 'apply', 'contacto', 'interview-prep']) {
   check(`\`${mode}\` is in scope`, (inScope ?? '').includes(`\`${mode}\``));
 }
 for (const mode of ['scan', 'pipeline', 'batch', 'ofertas']) {
