@@ -261,10 +261,11 @@ const COUNT_CLAIM_RE = new RegExp(
   // window. `(?:[\p{L}\p{N}]+-)*` lets the counted noun close a hyphenated
   // compound ("318 TryHackMe-Rooms"): German writes the modifier and the noun
   // as one hyphenated token, which a whitespace-only window never saw.
-  // An optional closer after the number lets "Led <team of 40> engineers"
-  // still read as 40 engineers. Only bracket/angle closers, not every
-  // non-alnum: `[^\p{L}\p{N}]*` would skip `50%` and bind 50 to a later noun.
-  String.raw`(?<![A-Za-z]-)\b(\d[\d,.]*(?:[kKmMbB]\b|\s+(?:${SPELLED_MAGNITUDE_ALT})\b)?)\s*\+?\s*(?:[>)\]}]\s*)?(?:\p{L}[\p{L}\p{M}-]*\s+){0,${MODIFIER_WINDOW}}?(?:[\p{L}\p{N}]+-)*(${METRIC_NOUNS.join('|')})(?![\p{L}\p{N}])`,
+  // An optional `>` after the number lets "Led <team of 40> engineers"
+  // still read as 40 engineers. Only that closer: `[^\p{L}\p{N}]*` skipped
+  // `50%` into a later noun, and `)` / `}` turned `1) HubSpot` and `{2023}`
+  // into counts.
+  String.raw`(?<![A-Za-z]-)\b(\d[\d,.]*(?:[kKmMbB]\b|\s+(?:${SPELLED_MAGNITUDE_ALT})\b)?)\s*\+?\s*(?:>\s*)?(?:\p{L}[\p{L}\p{M}-]*\s+){0,${MODIFIER_WINDOW}}?(?:[\p{L}\p{N}]+-)*(${METRIC_NOUNS.join('|')})(?![\p{L}\p{N}])`,
   'giu'
 );
 const NOUN_SYNONYMS = new Map([
@@ -2397,6 +2398,10 @@ function runSelfTest() {
     '40 engineers');
   equal('a percent sign is not a closer into a later noun',
     claimsOf('I grew it 50%. I build ledger services.'), '50%');
+  equal('a year in braces does not bind a later noun',
+    claimsOf('{2023} Built internal tools.'), '');
+  equal('a numbered list marker is not a count',
+    claimsOf('1) HubSpot, 2) Salesforce and 3) Looker.'), '');
 
   // A proposed plan horizon is not a claim about the past (#3655). Time units
   // belong in METRIC_NOUNS, so the stock cover-letter closing was extracted as a
