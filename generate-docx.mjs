@@ -35,7 +35,7 @@ import { fileURLToPath } from 'node:url';
 import { validateFlags } from './lib/cli-flags.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
-import { buildDocx, compareContent, extractDocxParagraphs, pageLengthWarning } from './lib/docx-resume.mjs';
+import { buildDocx, compareContent, pageLengthWarning } from './lib/docx-resume.mjs';
 
 const PROJECT_ROOT = dirname(fileURLToPath(import.meta.url));
 const KNOWN_FLAGS = ['--template', '--json', '--help', '-h'];
@@ -195,7 +195,7 @@ export function generateDocx({ input, output, template = 'garamond' }) {
     return { ok: false, error: OUTSIDE_ERROR };
   }
 
-  const warning = pageLengthWarning(extractDocxParagraphs(built.buffer), built.model.sections.length);
+  const warning = pageLengthWarning(built.model);
   try {
     writeDocxAtomically(realParent, name, built.buffer);
     return {

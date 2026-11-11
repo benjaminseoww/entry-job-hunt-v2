@@ -233,14 +233,17 @@ test('blocks: refuses raw inline HTML', () => {
     () => parseBlocks('# Jane\n\n## Work\n\n- Line one<br>line two\n'),
     /Unsupported markdown \(HTML\)/,
   );
-  assert.throws(
-    () => parseBlocks('# Jane\n\n## Work\n\n- <div>block</div>\n'),
-    /Unsupported markdown \(HTML\)/,
-  );
+  for (const bad of ['<div>block</div>', '<span>x</span>', '<img>', '<script>', '<b>bold</b>', '<a href="https://x.com">x</a>']) {
+    assert.throws(
+      () => parseBlocks(`# Jane\n\n## Work\n\n- ${bad}\n`),
+      /Unsupported markdown \(HTML\)/,
+      bad,
+    );
+  }
 });
 
 test('blocks: generics and code-span tags are not HTML', () => {
-  for (const ok of ['C++ <T>', 'List<String>', 'std::vector<int>', 'uses `<div>` in docs', '<3', 'a < b > c', '<jane@x.com>', '<50ms']) {
+  for (const ok of ['C++ <T>', 'List<String>', 'std::vector<int>', 'Optional<U>', 'Foo<A>', 'uses `<div>` in docs', '<3', 'a < b > c', '<jane@x.com>', '<50ms']) {
     assert.doesNotThrow(() => parseBlocks(`# Jane\n\n## Work\n\n- ${ok}\n`), ok);
   }
 });
@@ -863,7 +866,27 @@ test('page length: wrapping bullets warn above one page', () => {
     assert.match(result.warning, /longer than one page/);
     assert.equal(existsSync(output), true);
   });
-  assert.equal(pageLengthWarning(['short'], 1), null);
+  assert.equal(pageLengthWarning(parseResume('# Jane\n\n## Work\n\n- short\n')), null);
+});
+
+test('page length: cv-example stays on one page, ten extra wrapping bullets warn', () => {
+  const example = readFileSync(join(ROOT, 'examples', 'cv-example.md'), 'utf8');
+  const extra = Array.from({ length: 10 }, (_, i) => {
+    const prefix = `Uniqueextra${i} `;
+    return `- ${prefix}${'w'.repeat(90 - prefix.length)}`;
+  }).join('\n');
+  withTempDir((dir) => {
+    const input = join(dir, 'ok.md');
+    const output = join(dir, 'cv.docx');
+    writeFileSync(input, example);
+    const fit = generateDocx({ input, output });
+    assert.equal(fit.ok, true, fit.error);
+    assert.equal(fit.warning, undefined, fit.warning);
+    writeFileSync(input, `${example.trimEnd()}\n${extra}\n`);
+    const over = generateDocx({ input, output });
+    assert.equal(over.ok, true, over.error);
+    assert.match(over.warning, /longer than one page/);
+  });
 });
 
 test('cli: mkdtempOutsideAllowed dirs are cleaned up in finally', () => {
