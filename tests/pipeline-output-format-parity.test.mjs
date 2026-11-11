@@ -47,6 +47,7 @@ if (declaredFormats.length >= 3 && ['html', 'latex', 'text'].every((f) => declar
 const routes = [
   { label: '"latex"', cue: /"latex"/, mode: 'modes/latex.md' },
   { label: '"text"', cue: /"text"/, mode: 'modes/text.md' },
+  { label: '"docx"', cue: /"docx"/, mode: 'modes/docx.md' },
   { label: 'default', cue: /otherwise/i, mode: 'modes/pdf.md' },
 ];
 
@@ -67,7 +68,7 @@ const step3 = autoPipeline.split(/^## Step 3\b/m)[1]?.split(/^## /m)[0] ?? '';
 const step3Mispaired = mispairings(step3);
 
 if (step3.includes('cv.output_format') && step3Mispaired.length === 0) {
-  pass('modes/auto-pipeline.md Step 3 routes latex → latex.md, text → text.md, default → pdf.md');
+  pass('modes/auto-pipeline.md Step 3 routes latex → latex.md, text → text.md, docx → docx.md, default → pdf.md');
 } else {
   fail(`modes/auto-pipeline.md Step 3 is no longer the routing rule (${
     [step3.includes('cv.output_format') ? null : 'missing cv.output_format', ...step3Mispaired]

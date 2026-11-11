@@ -22,7 +22,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, basename } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -112,6 +112,7 @@ async function withWorkspace(fn, { html = true, manifest = true, outsideHtml = f
   } finally {
     if (prev === undefined) delete process.env.CAREER_OPS_ROOT;
     else process.env.CAREER_OPS_ROOT = prev;
+    rmSync(root, { recursive: true, force: true });
   }
 }
 
@@ -215,6 +216,29 @@ test("applyCvSource never names a manifest html column pointing outside the work
     },
     { html: false, outsideHtml: true },
   );
+});
+
+test("applyCvSource returns the tailored .md for a Word index row", async () => {
+  const root = mkdtempSync(join(tmpdir(), "prefill-docx-"));
+  mkdirSync(join(root, "output"), { recursive: true });
+  mkdirSync(join(root, "data"), { recursive: true });
+  const docx = "output/cv-acme.docx";
+  const md = "output/cv-acme.md";
+  writeFileSync(join(root, docx), "PK-docx");
+  writeFileSync(join(root, md), "# tailored\n");
+  writeFileSync(
+    join(root, "data", "pdf-index.tsv"),
+    MANIFEST_HEADER + `12\t${docx}\t${md}\tletter\t2026-01-10\tcv\n`,
+  );
+  const prev = process.env.CAREER_OPS_ROOT;
+  process.env.CAREER_OPS_ROOT = root;
+  try {
+    assert.equal(applyCvSource(root, docx), md);
+  } finally {
+    if (prev === undefined) delete process.env.CAREER_OPS_ROOT;
+    else process.env.CAREER_OPS_ROOT = prev;
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("applyCvSource refuses a path outside the workspace", async () => {

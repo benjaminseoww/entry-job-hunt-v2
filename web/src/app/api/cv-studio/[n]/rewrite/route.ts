@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { readJsonObject } from "@/lib/json-body";
-import { keywordsInText, loadStudio, unsupportedRewriteClaims } from "@/lib/cv-studio/server";
+import { keywordsInText, loadStudio, unsupportedRewriteClaims, WORD_CV_MESSAGE } from "@/lib/cv-studio/server";
 import { runRewrite } from "@/lib/cv-studio/rewrite-run";
 import { buildRewritePrompt, MAX_INSTRUCTION, parseRewrite } from "@/lib/cv-studio/rewrite.mjs";
 
@@ -29,7 +29,13 @@ export async function POST(req: Request, { params }: RouteContext) {
   if (!instruction) return NextResponse.json({ error: "Say how the bullet should change." }, { status: 400 });
 
   const load = await loadStudio(n);
-  if (!load.ok) return NextResponse.json({ error: load.reason }, { status: 404 });
+  if (!load.ok) {
+    const status = load.reason === "unreadable-layout" || load.reason === "word-cv" ? 422 : 404;
+    const body = load.reason === "word-cv"
+      ? { error: "word-cv" as const, message: WORD_CV_MESSAGE }
+      : { error: load.reason };
+    return NextResponse.json(body, { status });
+  }
   const bullet = load.doc.sections.flatMap((s) => s.items.flatMap((i) => i.bullets)).find((b) => b.id === body.bulletId);
   if (!bullet) return NextResponse.json({ error: "unknown bullet" }, { status: 404 });
 

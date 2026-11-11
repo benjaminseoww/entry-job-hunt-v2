@@ -49,14 +49,15 @@ import { randomUUID } from 'node:crypto';
 import { getCareerOpsRoot, getProfilePath, hasProfileOverride } from './path-resolver.mjs';
 import { readStyleTokens, injectThemeStyle, readCvSectionOrder, readLockedSections } from './theme-style.mjs';
 import { validateCvExperienceOrder } from './cv-experience-order.mjs';
-import { resolvePdfIndexPath, resolveTrackerPath, resolveWorkspaceRootFor, writeFileAtomic } from './tracker-utils.mjs';
-import { withPipelineLock } from './pipeline-lock.mjs';
+import { resolveTrackerPath, resolveWorkspaceRootFor, writeFileAtomic } from './tracker-utils.mjs';
+import { ARTIFACT_KINDS, recordIndexRow, resolveArtifactKind } from './lib/pdf-index.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 import { stripEmptyRenderedSections } from './cv-sections-core.mjs';
 import { PAGE_CSS_SIZE, PAGE_FORMATS, normalizePageFormat, pageFormatForCountry, resolvePageFormat } from './lib/page-format.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const trackerPath = resolveTrackerPath(getCareerOpsRoot());
+export { ARTIFACT_KINDS, applyManifestRow, resolveArtifactKind } from './lib/pdf-index.mjs';
 // Derive the workspace root from the uncanonicalized tracker path (#3169): a
 // repo that symlinks only its data/ out (the #524 workaround) must still resolve
 // cv.md, config/ and output/ inside the repo, not follow data/ to the symlink
@@ -1388,139 +1389,21 @@ export function injectPrintPageCss(html, format, country) {
   return `${pageStyle}\n${html}`;
 }
 
-/** The artifact kinds data/pdf-index.tsv keys on, alongside the report number. */
-export const ARTIFACT_KINDS = ['cv', 'cover'];
-
 /**
- * Decide which artifact a render produces, for the manifest's `kind` column.
- *
- * Resolved here rather than in the CLI because every path converges on
- * renderInPage(): the CLI, the --batch manifest, generate-cover-letter.mjs, and
- * the ad-hoc scripts that call the exported renderHtmlToPdf() directly. A
- * caller that forgets to declare a cover letter is the normal case, not the
- * exceptional one, so the default has to be derived rather than assumed to be
- * a CV (#3887).
- *
- * Precedence, most specific first:
- *   1. An explicit kind (the --kind flag, a batch entry's `kind`, opts.kind).
- *   2. A `cv-` prefix, the CV convention every generator writes. It wins over
- *      the cover check so a company whose own name starts with "Cover" keeps
- *      its CV filed as a CV.
- *   3. `cover` as the leading or trailing token: both real conventions, the
- *      `cover-...` prefix and the `{company}-{role}-cover.pdf` suffix that
- *      generate-cover-letter.mjs writes.
- *   4. 'cv', the overwhelmingly common render.
- *
- * Anchored to the ends of the name on purpose: an unanchored "cover" would read
- * a company or role carrying the word mid-name as a cover letter, and --kind is
- * the escape hatch for a name that signals nothing either way.
- *
- * @param {string|undefined} explicit - A caller-declared kind, if any.
- * @param {string} [outputPath] - Destination PDF path, used for inference.
- * @returns {{kind: 'cv'|'cover'|null, source: 'declared'|'name'|'default'}}
- *   `kind` is null when `explicit` is not a recognized kind, so the caller can
- *   reject it rather than silently rendering something else.
- */
-export function resolveArtifactKind(explicit, outputPath) {
-  if (explicit !== undefined && explicit !== null && String(explicit).trim() !== '') {
-    const declared = String(explicit).trim().toLowerCase();
-    return ARTIFACT_KINDS.includes(declared)
-      ? { kind: declared, source: 'declared' }
-      : { kind: null, source: 'declared' };
-  }
-
-  const name = basename(outputPath || '').toLowerCase().replace(/\.[^.]*$/, '');
-  if (name.startsWith('cv-')) return { kind: 'cv', source: 'name' };
-  if (/^cover([-_]|$)/.test(name) || /[-_]cover$/.test(name)) {
-    return { kind: 'cover', source: 'name' };
-  }
-  return { kind: 'cv', source: 'default' };
-}
-
-/**
- * Merge one generated-PDF row into the manifest's existing data lines.
- *
- * The manifest holds one row per report number AND artifact kind, so a CV and
- * a cover letter for the same application coexist (#3887). Superseding on the
- * report number alone meant whichever document was generated last deleted the
- * other, and readers that resolve "the PDF for report N" then returned a cover
- * letter as the CV.
- *
- * @param {string[]} existingLines - Current manifest lines, comments included.
- * @param {{reportNum: string, pdf: string, html: string, format: string, date: string, kind?: 'cv'|'cover'}} row
- * @returns {string[]} Data lines to write, the incoming row last.
- */
-export function applyManifestRow(existingLines, row) {
-  // "008" and "8" are the same report - zero-padded report-link form vs
-  // unpadded tracker-# form. Normalize so replacement rows match.
-  const normKey = (s) => (s || '').trim().replace(/^0+(?=\d)/, '');
-  const incomingKind = row.kind === 'cover' ? 'cover' : 'cv';
-
-  const kept = existingLines.filter((line) => {
-    if (!line.trim() || line.startsWith('#')) return false;
-    const fields = line.split('\t');
-    if (fields[1] === row.pdf) return false;
-    if (!row.reportNum || normKey(fields[0]) !== normKey(row.reportNum)) return true;
-    // Same report: the incoming row supersedes only its own kind's slot. A
-    // legacy row carries no kind, so an incoming CV claims it (the manifest
-    // must not grow a duplicate every time an untagged row's CV is
-    // regenerated) while an incoming cover letter leaves it alone rather than
-    // guessing that an unmarked row was a cover.
-    const existingKind = (fields[5] || '').trim();
-    return incomingKind === 'cover'
-      ? existingKind !== 'cover'
-      : existingKind === 'cover';
-  });
-
-  kept.push([row.reportNum || '', row.pdf, row.html, row.format, row.date, incomingKind].join('\t'));
-  return kept;
-}
-
-/**
- * Record a generated PDF in data/pdf-index.tsv so tools can map a tracker
- * report number to the exact PDF (and its source HTML for regeneration).
- *
- * Columns: report \t pdf \t html \t format \t date \t kind - paths relative to
- * the tracker workspace with forward slashes. One row per PDF path, and one row
- * per (report number, kind) so a report's CV and its cover letter coexist while
- * a regenerated document still supersedes its own stale entry. kind is appended
- * last because find.mjs, outcome.mjs and the web reader all parse this file
- * positionally; a reordered header would break them silently. The file is
- * gitignored: it references gitignored output/ artifacts and is meaningless on
- * another machine.
+ * Record a generated PDF in data/pdf-index.tsv. The shared writer lives in
+ * lib/pdf-index.mjs so generate-docx.mjs can index a Word CV without importing
+ * this Playwright-heavy module. applyManifestRow / resolveArtifactKind stay
+ * re-exported from here so existing callers keep working.
  */
 async function updatePDFManifest(reportNum, pdfPath, htmlPath, format, kind) {
-  const manifestPath = resolvePdfIndexPath(trackerPath);
-  const toRel = (p) => relative(workspaceRoot, p).split(sep).join('/');
-  const relPDF = toRel(pdfPath);
-  const relHTML = workspaceRelativeManifestPath(htmlPath, workspaceRoot);
-  const date = new Date().toISOString().slice(0, 10);
-
-  mkdirSync(dirname(manifestPath), { recursive: true });
-  // Read, supersede and write under one lock, and publish atomically. Every
-  // render is its own process (batch-runner.sh --parallel N starts N workers,
-  // each running generate-pdf.mjs), and this is a read-modify-write of one
-  // shared file: two renders that read the same manifest each wrote back their
-  // own row plus the old rows, so whichever wrote last erased the other's row.
-  return withPipelineLock(manifestPath, () => {
-    const existing = existsSync(manifestPath)
-      ? readFileSync(manifestPath, 'utf-8').split('\n')
-      : [];
-    const lines = applyManifestRow(existing, {
-      reportNum,
-      pdf: relPDF,
-      html: relHTML,
-      format,
-      date,
-      kind,
-    });
-
-    writeFileAtomic(
-      manifestPath,
-      '# report\tpdf\thtml\tformat\tdate\tkind - written by generate-pdf.mjs, do not edit\n' +
-        lines.join('\n') + '\n'
-    );
-    return relPDF;
+  return recordIndexRow({
+    trackerPath,
+    workspaceRoot,
+    reportNum,
+    file: pdfPath,
+    companion: htmlPath,
+    format,
+    kind,
   });
 }
 
