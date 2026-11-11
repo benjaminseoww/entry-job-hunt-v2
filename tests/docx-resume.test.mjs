@@ -905,7 +905,7 @@ test('cli: mixed-case output roots are allowed on darwin/win32', (t) => {
 });
 
 test('cli: a different-case sibling of the data root is refused', (t) => {
-  const parent = mkdtempSync(join(tmpdir(), 'docx-case-sibling-'));
+  const parent = mkdtempOutsideAllowed('docx-case-sibling-');
   const upper = join(parent, 'CaseRoot');
   const lower = join(parent, 'caseroot');
   mkdirSync(upper);
