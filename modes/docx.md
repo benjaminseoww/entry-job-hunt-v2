@@ -42,7 +42,7 @@ They must appear verbatim.
 14. Run the fact gate against the markdown: `node verify-cv-facts.mjs output/cv-{candidate}-{report}-{company}-{YYYY-MM-DD}.md`
     - Same hard gate `pdf` mode runs on the HTML and `text` mode runs on its markdown.
     - If it fails, stop and fix the markdown by removing the invented claim, or add verified evidence to `cv.md`, `article-digest.md`, or `config/cv-facts.json`. Do not render a `.docx` until this passes.
-15. Write a JSON payload of the tailored experience entries to `/tmp/cv-{candidate}[-{report}]-{company}.json` — include the `-{report}` segment when a report number is assigned, the same way `modes/pdf.md` step 17 does. Shape:
+15. Write a JSON payload of the tailored experience entries to `{tmpdir}/cv-{candidate}[-{report}]-{company}.json` — include the `-{report}` segment when a report number is assigned, the same way `modes/pdf.md` step 17 does. `{tmpdir}` is `/tmp` on Unix and the process temp directory on Windows (`os.tmpdir()` / `%TEMP%`). Shape:
 
     ```json
     {
@@ -63,9 +63,9 @@ They must appear verbatim.
     the bold title line, `dates` is the dates line. Do not invent entries the
     markdown does not have. If an experience entry is missing company, role,
     or dates, stop and fix the markdown — the title check refuses a partial set.
-16. Run the zero-LLM title-consistency check: `node cv-title-check.mjs /tmp/cv-{candidate}[-{report}]-{company}.json --summary`
+16. Run the zero-LLM title-consistency check: `node cv-title-check.mjs {tmpdir}/cv-{candidate}[-{report}]-{company}.json --summary`
     - Warn-only for completed comparisons, same handling as `modes/pdf.md` step 17a: surface mismatches, ambiguous groups, and unmatched entries before continuing; stop on a CLI/input error (exit 1).
-17. Run the structure check: `node verify-cv-structure.mjs /tmp/cv-{candidate}[-{report}]-{company}.json`
+17. Run the structure check: `node verify-cv-structure.mjs {tmpdir}/cv-{candidate}[-{report}]-{company}.json`
     - Warn-only, same handling as `modes/pdf.md` step 17b. A structural pass, warn, or `UNVERIFIED` exits 0 and never blocks the render. A CLI/input error exits 1; fix the invocation rather than treating that as just another warning.
 18. Render the Word file from the **gated markdown**, not from a rewritten draft:
 
@@ -76,16 +76,46 @@ They must appear verbatim.
     `generate-docx.mjs` reads the document back and compares its words with the
     markdown; a mismatch writes nothing and exits 1. If it fails, stop.
 19. Run the fact gate against the generated Word file: `node verify-cv-facts.mjs output/cv-{candidate}-{report}-{company}-{YYYY-MM-DD}.docx`
-    - The gate unzips the `.docx` and checks the text of `word/document.xml`. This is the hard gate on the file the user will send. A pass on the markdown is not a substitute.
+    - The gate unzips the `.docx` and checks the visible text of the body plus any headers, footers, footnotes and endnotes named by `word/_rels/document.xml.rels`, as plain text. This is the hard gate on the file the user will send. A pass on the markdown is not a substitute.
     - If it fails, stop and fix the markdown (step 13), then re-run steps 14–19. Do not hand-edit the `.docx`.
 20. Report: `.docx` path, `.md` path, section count, keyword coverage %, top 3 unmatched JD keywords
 
+## Markdown shape
+
+`generate-docx.mjs` reads the tailored markdown, not a JSON payload. Mirror
+`cv.md`'s headings and order. The renderer also expects this layout (same
+conventions as `examples/cv-example.md`):
+
+```markdown
+# CV -- Jane Smith
+
+**Email:** jane@example.com
+**Location:** Toronto, ON
+
+## Professional Summary
+
+Tailored summary.
+
+## Work Experience
+
+### Acme Corp -- Toronto, ON
+
+**Software Engineer**
+Jan 2026 – Present
+
+- Achievement with a sourced metric.
+```
+
+`# CV -- Name` becomes the centred name. `**Label:** value` lines under the
+name become the contact row. Each `### Company -- Location` entry is followed
+by a bold title line, then a dates line, then bullets.
+
 ## Language support
 
-All languages work, including CJK. The output is a Word document that names
-Garamond and does not embed fonts; a machine without Garamond substitutes a
-serif. The Japanese/Chinese/Korean limitation that applies to `latex` mode
-does not apply here.
+Latin-script CVs render in Garamond. CJK text is stored as Unicode and will
+show in Word; the file names Garamond and does not embed a CJK font, so a
+machine without a CJK-capable substitute may fall back poorly. Unlike `latex`
+mode there is no compile-time CJK refusal.
 
 ## ATS rules
 

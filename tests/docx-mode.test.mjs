@@ -19,9 +19,13 @@ test('docx mode writes the dated Word file with the report segment', () => {
 });
 
 test('docx mode fact-gates the markdown, then the .docx', () => {
-  assert.match(mode, /node verify-cv-facts\.mjs output\/cv-\{candidate\}-\{report\}-\{company\}-\{YYYY-MM-DD\}\.md/);
-  assert.match(mode, /node verify-cv-facts\.mjs output\/cv-\{candidate\}-\{report\}-\{company\}-\{YYYY-MM-DD\}\.docx/);
-  assert.match(mode, /node generate-docx\.mjs /);
+  const mdGate = mode.indexOf('node verify-cv-facts.mjs output/cv-{candidate}-{report}-{company}-{YYYY-MM-DD}.md');
+  const generate = mode.indexOf('node generate-docx.mjs ');
+  const docxGate = mode.indexOf('node verify-cv-facts.mjs output/cv-{candidate}-{report}-{company}-{YYYY-MM-DD}.docx');
+  assert.ok(mdGate >= 0, 'markdown fact gate is missing');
+  assert.ok(generate >= 0, 'generate-docx step is missing');
+  assert.ok(docxGate >= 0, '.docx fact gate is missing');
+  assert.ok(mdGate < generate && generate < docxGate, 'expected md gate, then generate, then docx gate');
 });
 
 test('docx mode runs the title check and structure check against cv.md', () => {
@@ -32,4 +36,11 @@ test('docx mode runs the title check and structure check against cv.md', () => {
 test('docx mode does not write the tracker or the PDF index', () => {
   assert.match(mode, /Leave the tracker's PDF\/Word column alone/);
   assert.match(mode, /does \*\*not\*\* write the tracker CV column or `data\/pdf-index\.tsv`/);
+});
+
+test('docx mode shows the markdown shape and a Windows-safe temp path', () => {
+  assert.match(mode, /# CV -- Jane Smith/);
+  assert.match(mode, /\*\*Email:\*\*/);
+  assert.match(mode, /### Acme Corp -- Toronto, ON/);
+  assert.match(mode, /\{tmpdir\}/);
 });

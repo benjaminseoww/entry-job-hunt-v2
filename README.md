@@ -297,6 +297,7 @@ career-ops uses a shared command router. In CLIs that register slash commands, i
 /career-ops interview-redflag → Analyze employer warning signs before joining a company
 /career-ops pdf       → PDF only, ATS-optimized CV
 /career-ops text      → Tailored markdown CV (mirrors cv.md, no PDF)
+/career-ops docx      → Word (.docx) CV from tailored markdown
 /career-ops latex     → Export CV as LaTeX/Overleaf .tex
 /career-ops latex-tex → Tailor your own resume.tex in place (opt-in; cv.md stays default)
 /career-ops cover     → Cover letter: standalone JD paste or /career-ops cover {slug}
