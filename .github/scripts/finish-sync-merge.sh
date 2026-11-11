@@ -11,7 +11,8 @@
 set -euo pipefail
 
 if [ "${GITHUB_ACTIONS:-}" != "true" ]; then
-  echo "finish-sync-merge.sh only runs in GitHub Actions"
+  echo "finish-sync-merge.sh only runs in GitHub Actions" >&2
+  echo "Set GITHUB_ACTIONS=true to override (e.g. for act)." >&2
   exit 1
 fi
 
