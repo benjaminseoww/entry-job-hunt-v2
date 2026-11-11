@@ -20,11 +20,15 @@ test("loadStudio refuses a Word index row", async () => {
     join(root, "data", "pdf-index.tsv"),
     "# report\tpdf\thtml\tformat\tdate\tkind\n12\toutput/cv-acme.docx\toutput/cv-acme.md\tletter\t2026-01-10\tcv\n",
   );
+  // Static stub: join the arguments pdf-index.ts actually passes. Do not
+  // interpolate temp paths into generated JS — CodeQL flags that as
+  // js/bad-code-sanitization even in tests.
   writeFileSync(
     join(root, "tracker-utils.mjs"),
     [
-      `export const resolveTrackerPath = () => ${JSON.stringify(join(root, "data", "applications.md"))};`,
-      `export const resolvePdfIndexPath = () => ${JSON.stringify(join(root, "data", "pdf-index.tsv"))};`,
+      'import { dirname, join } from "node:path";',
+      "export const resolveTrackerPath = (rootDir) => join(rootDir, \"data\", \"applications.md\");",
+      "export const resolvePdfIndexPath = (trackerPath) => join(dirname(trackerPath), \"pdf-index.tsv\");",
     ].join("\n"),
   );
   writeFileSync(join(root, "reports", "012-acme-2026-01-10.md"), "# Offer: Acme -- Staff\n");
