@@ -113,3 +113,82 @@ func TestRunGeneratePDFRejectsDataOnlyScript(t *testing.T) {
 		t.Fatalf("data-only script must not run: %+v", msg)
 	}
 }
+
+func TestRunGeneratePDFDispatchesDocxScriptWithoutFormat(t *testing.T) {
+	checkout := getRepoRoot()
+	if _, err := os.Stat(filepath.Join(checkout, "generate-docx.mjs")); err != nil {
+		t.Fatalf("checkout is missing generate-docx.mjs: %v", err)
+	}
+	root := t.TempDir()
+	capture := filepath.Join(t.TempDir(), "capture.json")
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(binDir, "node"), binary, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("CAREER_OPS_TEST_PDF_CAPTURE", capture)
+	t.Setenv("CAREER_OPS_ROOT", t.TempDir())
+	t.Setenv("CAREER_OPS_TRACKER", "custom/tracker.md")
+	t.Setenv("CAREER_OPS_PDF_INDEX", "custom-index.tsv")
+	previous := runOpenCommand
+	t.Cleanup(func() { runOpenCommand = previous })
+	var opened string
+	runOpenCommand = func(name string, args ...string) error {
+		opened = args[0]
+		return nil
+	}
+	request := screens.PipelineGeneratePDFMsg{
+		CareerOpsPath: root, HTMLPath: "output/source CV.md", PDFPath: "output/tailored CV.docx", Format: "letter", ReportNumber: "007",
+	}
+	msg := runGeneratePDF(request)().(screens.PipelinePDFGeneratedMsg)
+	if msg.Err != "" {
+		t.Fatalf("docx generation failed: %s", msg.Err)
+	}
+	var got pdfNodeCapture
+	raw, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	wantArgs := []string{filepath.Join(checkout, "generate-docx.mjs"), filepath.Join(root, request.HTMLPath), filepath.Join(root, request.PDFPath), "--report=007"}
+	if len(got.Args) != len(wantArgs) {
+		t.Fatalf("unexpected args: %v", got.Args)
+	}
+	for i, want := range wantArgs {
+		if got.Args[i] != want {
+			t.Fatalf("argument %d = %q, want %q", i, got.Args[i], want)
+		}
+	}
+	for _, arg := range got.Args {
+		if strings.HasPrefix(arg, "--format=") {
+			t.Fatalf("docx generator must not receive --format, got %v", got.Args)
+		}
+	}
+	if opened != filepath.Join(root, request.PDFPath) || msg.Path != opened {
+		t.Fatalf("opened wrong CV: %s, result %+v", opened, msg)
+	}
+}
+
+func TestRunGeneratePDFRejectsDataOnlyDocxScript(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "generate-docx.mjs"), []byte("throw new Error('data script ran')"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+	msg := runGeneratePDF(screens.PipelineGeneratePDFMsg{
+		CareerOpsPath: root, HTMLPath: "output/cv.md", PDFPath: "output/cv.docx",
+	})().(screens.PipelinePDFGeneratedMsg)
+	if !strings.Contains(msg.Err, "need generate-docx.mjs in the career-ops checkout") {
+		t.Fatalf("data-only docx script must not run: %+v", msg)
+	}
+}

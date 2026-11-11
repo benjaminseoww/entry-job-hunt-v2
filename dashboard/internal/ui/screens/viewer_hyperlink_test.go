@@ -278,6 +278,38 @@ func TestBalanceHyperlinksCarriesLinkAcrossLines(t *testing.T) {
 	}
 }
 
+func TestRelPDFPathMatchesPdfAndDocx(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"CV: output/cv-jane-doe-acme-2026-06-05.pdf.", "output/cv-jane-doe-acme-2026-06-05.pdf"},
+		{"CV: output/cv-jane-doe-acme-2026-06-05.docx.", "output/cv-jane-doe-acme-2026-06-05.docx"},
+		{"see output/cover-acme.pdf", ""},
+	}
+	for _, c := range cases {
+		got := reRelPDFPath.FindString(c.in)
+		if got != c.want {
+			t.Errorf("reRelPDFPath(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestViewerLinksRelativeDocxPaths(t *testing.T) {
+	root := t.TempDir()
+	m := ViewerModel{
+		lines:         []string{"CV: output/cv-jane-doe-acme-2026-06-05.docx"},
+		width:         120,
+		height:        20,
+		theme:         theme.NewTheme("catppuccin-mocha"),
+		careerOpsPath: root,
+	}
+	m.rebuildRender()
+	got := linkTargets(strings.Join(m.renderedLines, "\n"))
+	if len(got) != 1 || !strings.HasPrefix(got[0], "file://") || !strings.Contains(got[0], "cv-jane-doe-acme-2026-06-05.docx") {
+		t.Fatalf("targets = %q, want a file:// link to the .docx", got)
+	}
+}
+
 func TestMarkdownLinkTarget(t *testing.T) {
 	cases := map[string]string{
 		"https://a.example":              "https://a.example",
