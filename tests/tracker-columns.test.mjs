@@ -578,6 +578,25 @@ const HEADER_VIA = `# Applications Tracker
 | 2 | 2026-01-05 | ? | Hays | Data Engineer | 4.2/5 | Applied | ✅ | — | fintech, Leeds |
 `;
 
+// ── | Word | header alias: the CV column is the existing pdf field ──────────
+// A tracker whose CV column is labelled Word (not PDF / Materials) used to
+// leave colmap.pdf unset: mark-pdf-ready exited no-pdf-column, tracker.mjs
+// stored the cell in extras, and the dashboard read an empty CV cell.
+test('resolveColumns: | Word | maps onto the pdf field', () => {
+  const lines = [
+    '| # | Date | Company | Role | Score | Status | Word | Report | Notes |',
+    '|---|------|---------|------|-------|--------|------|--------|-------|',
+    '| 1 | 2026-01-01 | Acme | Engineer | 4.0/5 | Applied | ✅ | — | seed row |',
+  ];
+  const colmap = resolveColumns(lines);
+  assert.equal(colmap.pdf, 7);
+  const row = parseTrackerRow(lines[2], colmap);
+  assert.ok(row);
+  assert.equal(row.pdf, '✅');
+  assert.equal(row.status, 'Applied');
+  assert.equal(row.notes, 'seed row');
+});
+
 // ── Test 9: parseTrackerRow surfaces the Via column ─────────────────────────
 describe('parseTrackerRow: Via column', () => {
   const lines = HEADER_VIA.split('\n');
@@ -1225,6 +1244,26 @@ async function syncThenExport(content) {
 }
 
 // ── a Location + URL layout survives sync → export byte-for-byte ────────────
+test('tracker.mjs: Word header stores the cell in pdf and round-trips byte-for-byte', SQLITE, async (t) => {
+  const WORD = `# Applications Tracker
+
+| # | Date | Company | Role | Score | Status | Word | Report | Notes |
+|---|------|---------|------|-------|--------|------|--------|-------|
+| 1 | 2026-01-01 | Acme | Engineer | 4.2/5 | Applied | ✅ | — | seed row |
+`;
+  const { sb, sync, exported } = await syncThenExport(WORD);
+  t.after(() => removeSandbox(sb));
+  assert.equal(sync.code, 0, sync.stderr);
+  assert.equal(exported.code, 0, exported.stderr);
+  assert.equal(exported.stdout, WORD);
+  const { DatabaseSync } = await import('node:sqlite');
+  const db = new DatabaseSync(sb.db);
+  const row = db.prepare('SELECT pdf, extras FROM applications WHERE id = 1').get();
+  db.close();
+  assert.equal(row.pdf, '✅');
+  assert.deepEqual(JSON.parse(row.extras), {});
+});
+
 test('tracker.mjs export: Location/URL layout round-trips byte-for-byte', SQLITE, async (t) => {
   const CUSTOM = `# Applications Tracker
 

@@ -150,8 +150,9 @@ const SCHEMA_FIELDS = {
 // ensureFresh() rebuilds on a mismatch, so a db written before `extras` and
 // the stored header existed cannot serve an export that would silently drop
 // the columns it never captured. 3: status_events are rebuilt from the
-// ledger and carry a `source` (#5555).
-const SCHEMA_VERSION = '3';
+// ledger and carry a `source` (#5555). 4: `word` header alias maps the Word
+// column onto `pdf`, so a previously-unmapped Word cell leaves extras.
+const SCHEMA_VERSION = '4';
 
 // Where a status_events row came from. Only 'ledger' rows are derived; the
 // other two exist because a sync saw them and nothing else recorded them.

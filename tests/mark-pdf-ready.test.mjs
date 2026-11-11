@@ -14,6 +14,7 @@ import { join } from 'path';
 import { execFileSync } from 'child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, chmodSync } from 'fs';
 import { tmpdir } from 'os';
+import { resolveColumns } from '../tracker-parse.mjs';
 
 console.log('\nmark-pdf-ready.mjs — PDF column write path');
 
@@ -344,6 +345,40 @@ const TRACKER_DUP_REPORT = `# Applications Tracker
       pass('no-pdf-column: exit 1 when the tracker has no PDF column');
     } else {
       fail(`no-pdf-column: code=${r.code} json=${JSON.stringify(parsed)}\n${r.stdout}${r.stderr}`);
+    }
+  } finally {
+    rmSync(sb.dir, { recursive: true, force: true });
+  }
+}
+
+// ── 11b. Tracker with a Word column alias -> colmap.pdf is set, --dry-run succeeds ──
+{
+  // Given a header that names the CV column Word instead of PDF. Before the
+  // word→pdf alias this was a live bug: resolveColumns left colmap.pdf unset
+  // and mark-pdf-ready exited 1 with no-pdf-column.
+  const WORD_COLUMN = `# Applications Tracker
+
+| # | Date | Company | Role | Score | Status | Word | Report | Notes |
+|---|------|---------|------|-------|--------|------|--------|-------|
+| 1 | 2026-06-01 | Acme | Backend Engineer | 4.2/5 | Evaluated | ❌ | [1](../reports/001-acme-2026-06-01.md) | — |
+`;
+  const sb = makeSandbox(WORD_COLUMN);
+  try {
+    const colmap = resolveColumns(WORD_COLUMN.split('\n'));
+    if (colmap.pdf != null) {
+      pass('word-alias: resolveColumns maps | Word | onto colmap.pdf');
+    } else {
+      fail(`word-alias resolveColumns: colmap.pdf is unset (${JSON.stringify(colmap)})`);
+    }
+
+    const r = runMarkPdfReady(['1', '--dry-run', '--json'], sb);
+    let parsed = null;
+    try { parsed = JSON.parse(r.stdout); } catch { /* asserted below */ }
+
+    if (r.code === 0 && parsed?.dryRun === true && parsed?.changed === true) {
+      pass('word-alias: --dry-run succeeds on a | Word | tracker');
+    } else {
+      fail(`word-alias dry-run: code=${r.code} json=${JSON.stringify(parsed)}\n${r.stdout}${r.stderr}`);
     }
   } finally {
     rmSync(sb.dir, { recursive: true, force: true });
