@@ -10,8 +10,6 @@ import { servePdf } from "@/lib/serve-cv-file.mjs";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export { servePdf };
-
 // Serve the tailored CV PDF the pdf mode wrote to output/ for a given offer.
 // Inline so it opens in the browser. Local-first: reads the user's own output/
 // dir.

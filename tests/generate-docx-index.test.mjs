@@ -91,6 +91,9 @@ test('--report writes a Word CV row; a re-run supersedes it; a cover row survive
 
     const first = run(root, env, [input, output, '--report=7', '--json']);
     assert.equal(first.status, 0, first.stderr);
+    const firstJson = JSON.parse(first.stdout);
+    assert.equal(firstJson.index.ok, true);
+    assert.equal(firstJson.index.path, 'output/cv.docx');
     let rows = dataRows(root);
     assert.equal(rows.length, 2);
     assert.ok(rows.some((row) => row.endsWith('\tcover')));
@@ -105,5 +108,23 @@ test('--report writes a Word CV row; a re-run supersedes it; a cover row survive
     assert.ok(rows.some((row) => row.includes('output/cover-acme.docx') && row.endsWith('\tcover')));
     assert.ok(rows.some((row) => row.includes('output/cv-2.docx') && row.endsWith('\tcv')));
     assert.ok(!rows.some((row) => row.includes('\toutput/cv.docx\t')));
+  });
+});
+
+test('--report still prints JSON when the index write fails', () => {
+  withWorkspace(({ root, env }) => {
+    const input = join(root, 'output', 'cv.md');
+    const output = join(root, 'output', 'cv.docx');
+    writeFileSync(input, MD);
+    const blocked = join(root, 'blocked-index');
+    mkdirSync(blocked);
+    env.CAREER_OPS_PDF_INDEX = blocked;
+    const r = run(root, env, [input, output, '--report=7', '--json']);
+    assert.equal(existsSync(output), true);
+    const json = JSON.parse(r.stdout);
+    assert.equal(json.ok, true);
+    assert.equal(json.index.ok, false);
+    assert.equal(typeof json.index.error, 'string');
+    assert.match(r.stderr, /index failed/);
   });
 });

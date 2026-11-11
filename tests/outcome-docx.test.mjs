@@ -69,6 +69,25 @@ test('an auto-detected .docx is archived as submitted_cv.docx', () => {
   });
 });
 
+test('Case B resolves a data-relative ../output/ Word link without an index row', () => {
+  withWorkspace(({ root, env }) => {
+    writeFileSync(
+      join(root, 'data', 'applications.md'),
+      `# Applications Tracker
+
+| # | Date | Company | Role | Score | Status | Word | Report | Notes |
+|---|------|---------|------|-------|--------|------|--------|-------|
+| 1 | 2026-01-01 | Acme | Engineer | 4.2/5 | Applied | [Word](../output/cv-acme.docx) | [1](../reports/001-acme-2026-01-01.md) | linked word |
+`,
+    );
+    writeFileSync(join(root, 'data', 'pdf-index.tsv'), '');
+    const r = run(root, env, ['1', 'rejected', '--json']);
+    assert.equal(r.status, 0, r.stderr + r.stdout);
+    const result = JSON.parse(r.stdout);
+    assert.equal(readFileSync(join(result.outcomeDir, 'submitted_cv.docx'), 'utf8'), 'PK-docx-bytes');
+  });
+});
+
 test('--clean-output removes the Word file and its .md companion inside output/, never a path outside', () => {
   withWorkspace(({ root, outside, env }) => {
     const r = run(root, env, ['1', 'rejected', '--clean-output', '--json']);

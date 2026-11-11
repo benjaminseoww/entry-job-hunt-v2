@@ -12,7 +12,10 @@ type RouteContext = { params: Promise<{ n: string }> };
 const NOT_FOUND = { "no-report": 404, "no-tailored-cv": 404, "unreadable-layout": 422, "word-cv": 422 } as const;
 
 function studioError(reason: keyof typeof NOT_FOUND) {
-  return NextResponse.json({ error: reason === "word-cv" ? WORD_CV_MESSAGE : reason }, { status: NOT_FOUND[reason] });
+  const body = reason === "word-cv"
+    ? { error: "word-cv" as const, message: WORD_CV_MESSAGE }
+    : { error: reason };
+  return NextResponse.json(body, { status: NOT_FOUND[reason] });
 }
 
 const saving = new Set<string>();

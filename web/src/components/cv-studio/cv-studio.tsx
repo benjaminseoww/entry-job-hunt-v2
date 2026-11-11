@@ -19,7 +19,6 @@ const REASONS: Record<string, { title: string; body: string }> = {
   "unreadable-layout": { title: "This CV layout is not supported yet", body: "The Studio reads CVs built from the career-ops templates. Open the PDF from the report page instead." },
   "no-report": { title: "Report not found", body: "There is no evaluation report with this number." },
   "word-cv": { title: "Word CVs are not editable here yet", body: "CV Studio does not edit Word CVs yet. Open the .docx from the report page instead." },
-  "CV Studio does not edit Word CVs yet": { title: "Word CVs are not editable here yet", body: "CV Studio does not edit Word CVs yet. Open the .docx from the report page instead." },
 };
 
 const STALE = "This CV was regenerated in another tab. Reload the Studio.";

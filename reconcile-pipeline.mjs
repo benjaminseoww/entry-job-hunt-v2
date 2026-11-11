@@ -193,6 +193,7 @@ function resolvePdf(reportFile) {
 }
 
 function cvProcessedLabel(rep, outputFormat, mark) {
+  if (/[^\s]+\.pdf\b/i.test(rep || '')) return `PDF ${mark}`;
   const word = /[^\s]+\.docx\b/i.test(rep || '') || outputFormat === 'docx';
   return `${word ? 'Word' : 'PDF'} ${mark}`;
 }
