@@ -10,6 +10,12 @@
 
 set -euo pipefail
 
+if [ "${GITHUB_ACTIONS:-}" != "true" ]; then
+  echo "finish-sync-merge.sh only runs in GitHub Actions" >&2
+  echo "Set GITHUB_ACTIONS=true to override (e.g. for act)." >&2
+  exit 1
+fi
+
 : "${REMOTE:?}"
 : "${BRANCH:?}"
 : "${GITHUB_OUTPUT:?}"
@@ -17,8 +23,13 @@ set -euo pipefail
 : "${FORK_BRANCH:?}"
 : "${UPSTREAM_REPO:?}"
 
-git config user.name "github-actions[bot]"
-git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+# Scope the bot identity to this process. Do not write user.name / user.email
+# into git config — that persists in the repo and later local commits (including
+# from worktrees that share that config) would be authored as github-actions[bot].
+export GIT_AUTHOR_NAME='github-actions[bot]'
+export GIT_AUTHOR_EMAIL='41898282+github-actions[bot]@users.noreply.github.com'
+export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
 
 if [ "$(git rev-parse --abbrev-ref HEAD)" != "$FORK_BRANCH" ]; then
   git checkout "$FORK_BRANCH"
