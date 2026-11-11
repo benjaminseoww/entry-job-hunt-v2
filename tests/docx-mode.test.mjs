@@ -36,6 +36,7 @@ test('docx mode runs the title check and structure check against cv.md', () => {
 test('docx mode does not write the tracker or the PDF index', () => {
   assert.match(mode, /Leave the tracker's PDF\/Word column alone/);
   assert.match(mode, /does \*\*not\*\* write the tracker CV column or `data\/pdf-index\.tsv`/);
+  assert.match(mode, /not yet visible in the tracker/);
 });
 
 test('docx mode shows the markdown shape and a Windows-safe temp path', () => {
@@ -43,4 +44,18 @@ test('docx mode shows the markdown shape and a Windows-safe temp path', () => {
   assert.match(mode, /\*\*Email:\*\*/);
   assert.match(mode, /### Acme Corp -- Toronto, ON/);
   assert.match(mode, /\{tmpdir\}/);
+});
+
+test('docx mode archives the JD, runs skill-gap, title, structure and keyword coverage', () => {
+  assert.match(mode, /jds\/\{slug\}\.md/);
+  assert.match(mode, /node jd-skill-gap\.mjs /);
+  assert.match(mode, /node cv-title-check\.mjs /);
+  assert.match(mode, /node verify-cv-structure\.mjs /);
+  assert.match(mode, /node keyword-match\.mjs /);
+});
+
+test('docx mode offers a PDF cover letter and never auto-generates it', () => {
+  assert.match(mode, /CV \(Word\) generated/);
+  assert.match(mode, /modes\/cover\.md/);
+  assert.match(mode, /Do not auto-generate the cover letter/);
 });

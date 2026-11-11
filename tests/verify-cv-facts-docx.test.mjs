@@ -244,6 +244,25 @@ test('a claim after a nested text-box paragraph is still gated', () => {
   });
 });
 
+test('an inflated metric in a footer is blocked even without a rels entry', () => {
+  withDir('career-ops-facts-docx-orphan-footer-', (dir) => {
+    writeFileSync(join(dir, 'cv.md'), resume('Led a team of 4 engineers.'));
+    const path = writePacked(dir, 'orphan-footer.docx', {
+      'word/document.xml': wmlDocument('w', paragraph('w', t('w', 'IntroBox text'))),
+      'word/footer1.xml': `<w:ftr xmlns:w="${WML}">${paragraph('w', t('w', 'Led a team of 40 engineers.'))}</w:ftr>`,
+    });
+    const text = extractDocxText(readFileSync(path));
+    assert.match(text, /40 engineers/);
+    const result = verifyFacts(text, {
+      sourcePaths: [join(dir, 'cv.md')],
+      configPath: join(dir, 'no-such-cv-facts.json'),
+      format: 'text',
+    });
+    assert.equal(result.verdict, 'block');
+    assert.ok(result.invented.some((claim) => /40 engineers/.test(claim)));
+  });
+});
+
 test('header, footnotes and an x: namespace prefix are readable', () => {
   withDir('career-ops-facts-docx-parts-', (dir) => {
     writeFileSync(join(dir, 'cv.md'), resume('Led a team of 4 engineers.'));
