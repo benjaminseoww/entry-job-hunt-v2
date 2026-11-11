@@ -58,4 +58,7 @@ test('docx mode offers a PDF cover letter and never auto-generates it', () => {
   assert.match(mode, /CV \(Word\) generated/);
   assert.match(mode, /modes\/cover\.md/);
   assert.match(mode, /Do not auto-generate the cover letter/);
+  assert.match(mode, /may be A4 while the Word CV is always\s+US Letter/);
+  assert.doesNotMatch(mode, /Page format: skipped/);
+  assert.doesNotMatch(mode, /Detect company location/);
 });
