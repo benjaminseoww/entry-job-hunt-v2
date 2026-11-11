@@ -677,6 +677,44 @@ const PDF_HEADER = '# report\tpdf\thtml\tformat\tdate\tkind';
   }
 }
 
+{
+  // A Word-header tracker whose CV cell is a file link must stay byte-identical
+  // even when a live index row would otherwise flip the cell to ✅. The link is
+  // the path docx-backfill needs.
+  const work = mkdtempSync(join(tmpdir(), 'cops-sync-word-link-'));
+  try {
+    const tracker = join(work, 'applications.md');
+    const pdfIndex = join(work, 'pdf-index.tsv');
+    const WORD_LINK = [
+      '# Applications Tracker',
+      '',
+      '| # | Date | Company | Role | Score | Status | Word | Report | Notes |',
+      '|---|------|---------|------|-------|--------|------|--------|-------|',
+      '| 1 | 2026-01-01 | Acme | SE | 4.0/5 | Evaluated | [Word](../output/x.docx) | [1](reports/1-acme.md) | |',
+      '',
+    ].join('\n');
+    mkdirSync(join(work, 'output'), { recursive: true });
+    writeFileSync(join(work, 'output', 'x.docx'), 'PK');
+    writeFileSync(tracker, WORD_LINK);
+    writeFileSync(pdfIndex, [PDF_HEADER, '1\toutput/x.docx\toutput/x.md\tletter\t2026-01-01\tcv', ''].join('\n'));
+
+    const result = spawnSync(NODE, [join(ROOT, 'sync-pdf-flags.mjs')], {
+      encoding: 'utf-8',
+      timeout: 30000,
+      cwd: work,
+      env: { ...process.env, CAREER_OPS_ROOT: work, CAREER_OPS_TRACKER: tracker, CAREER_OPS_PDF_INDEX: pdfIndex },
+    });
+    const after = readFileSync(tracker, 'utf-8');
+    if (result.status === 0 && after === WORD_LINK && /left as is \(run docx-backfill\)/.test(result.stderr)) {
+      pass('a [Word](…) cell with a live index row stays byte-identical');
+    } else {
+      fail(`Word-link cell was rewritten or the warning was missing: status=${result.status}, unchanged=${after === WORD_LINK}, stderr=${JSON.stringify(result.stderr)}`);
+    }
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+}
+
 if (process.platform === 'win32') {
   warn('presence-unknown case not exercised on win32: a self-referential link needs symlink privilege');
 } else {

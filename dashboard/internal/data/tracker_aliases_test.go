@@ -104,6 +104,39 @@ func TestLocalizedTrackerHeaders(t *testing.T) {
 	}
 }
 
+func TestPDFThenWordColumnsLastWins(t *testing.T) {
+	t.Setenv("CAREER_OPS_TRACKER", "")
+	header := "| # | Date | Company | Role | Score | Status | PDF | Word | Report | Notes |"
+	row := "| 41 | 2026-01-02 | Acme | Engineer | 4.2/5 | Applied | ❌ | ✅ | [41](reports/041.md) | keep |"
+	cols := detectTrackerColumns([]string{header})
+	if cols == nil || cols["pdf"] != 7 {
+		t.Fatalf("last-wins: pdf should bind to Word (index 7), got %v", cols)
+	}
+	dir, trackerPath := writeTracker(t, header+"\n"+row+"\n")
+	apps := mustParseApplications(t, dir)
+	if len(apps) != 1 {
+		t.Fatalf("expected exactly one application, got %d", len(apps))
+	}
+	a := apps[0]
+	if a.Company != "Acme" || a.Role != "Engineer" || a.Notes != "keep" {
+		t.Fatalf("dual PDF/Word header misaligned neighbours: %+v", a)
+	}
+	if !a.HasPDF {
+		t.Fatal("HasPDF = false, want true: last-wins must read ✅ from Word, not ❌ from PDF")
+	}
+	if err := UpdateApplicationStatusAndNotes(dir, a, "Interview", "scheduled"); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := os.ReadFile(trackerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Split(string(updated), "\n")
+	if !strings.Contains(got[1], "| ❌ | ✅ |") {
+		t.Fatalf("writer must leave the PDF extras cell and the Word pdf cell: %s", updated)
+	}
+}
+
 func TestWordHeaderAliasMapsPDFCell(t *testing.T) {
 	t.Setenv("CAREER_OPS_TRACKER", "")
 	header := "| # | Date | Company | Role | Score | Status | Word | Report | Notes |"
