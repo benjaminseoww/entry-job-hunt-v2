@@ -697,14 +697,26 @@ func (m PipelineModel) handleKey(msg tea.KeyMsg) (PipelineModel, tea.Cmd) {
 				}
 			}
 			if !found || entry.HTMLPath == "" {
-				m.flash = "No source HTML found for this application — run /career-ops pdf first"
+				if data.WordCV(entry.PDFPath, entry.HTMLPath) {
+					m.flash = "No source markdown found for this application — run /career-ops docx first"
+				} else {
+					m.flash = "No source HTML found for this application — run /career-ops pdf first"
+				}
 				return m, nil
 			}
 			if _, err := os.Stat(filepath.Join(workspaceRoot, filepath.FromSlash(entry.HTMLPath))); err != nil {
-				m.flash = "Source HTML missing: " + entry.HTMLPath
+				if data.WordCV(entry.PDFPath, entry.HTMLPath) {
+					m.flash = "Source markdown missing: " + entry.HTMLPath
+				} else {
+					m.flash = "Source HTML missing: " + entry.HTMLPath
+				}
 				return m, nil
 			}
-			m.flash = "Regenerating PDF via generate-pdf.mjs — this takes a few seconds..."
+			if data.WordCV(entry.PDFPath, entry.HTMLPath) {
+				m.flash = "Regenerating CV via generate-docx.mjs — this takes a few seconds..."
+			} else {
+				m.flash = "Regenerating PDF via generate-pdf.mjs — this takes a few seconds..."
+			}
 			path, report := workspaceRoot, entry.ReportNumber
 			html, pdf, format := entry.HTMLPath, entry.PDFPath, entry.Format
 			return m, func() tea.Msg {
@@ -2269,7 +2281,7 @@ func (m PipelineModel) overlayPDFPicker(body string) string {
 		Bold(true)
 
 	var picker []string
-	picker = append(picker, padStyle.Render(borderStyle.Render("Open CV PDF:")))
+	picker = append(picker, padStyle.Render(borderStyle.Render("Open CV:")))
 
 	for i, choice := range m.pdfChoices {
 		style := lipgloss.NewStyle().Foreground(m.theme.Text).Width(pickerWidth)
