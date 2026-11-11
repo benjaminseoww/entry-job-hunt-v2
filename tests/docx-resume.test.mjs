@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { generateDocx } from '../generate-docx.mjs';
 import { crc32, readZip, writeZip } from '../lib/docx-zip.mjs';
 import {
-  LAYOUT, TEMPLATE_PARTS, buildDocx, compareContent, extractDocxParagraphs, parseBlocks, parseInline, parseResume, stripInlineMarkers, words,
+  LAYOUT, TEMPLATE_PARTS, buildDocx, compareContent, extractDocxParagraphs, pageLengthWarning, parseBlocks, parseInline, parseResume, stripInlineMarkers, words,
 } from '../lib/docx-resume.mjs';
 import { getCareerOpsRoot } from '../path-resolver.mjs';
 
@@ -31,6 +31,8 @@ function isInside(root, target) {
  * and not os.tmpdir(). Hard-coding `/tmp` fails both ways — Windows has no
  * `/tmp`, and on Linux `tmpdir()` *is* `/tmp`, so a write there is allowed.
  */
+const outsideDirsCreated = [];
+
 function mkdtempOutsideAllowed(prefix = 'career-ops-docx-outside-') {
   const allowed = [ROOT, getCareerOpsRoot(), tmpdir()].map(realOrSelf);
   const errors = [];
@@ -42,6 +44,7 @@ function mkdtempOutsideAllowed(prefix = 'career-ops-docx-outside-') {
         rmSync(dir, { recursive: true, force: true });
         continue;
       }
+      outsideDirsCreated.push(dir);
       return dir;
     } catch (error) {
       errors.push(`${base}: ${error.message}`);
@@ -49,6 +52,12 @@ function mkdtempOutsideAllowed(prefix = 'career-ops-docx-outside-') {
   }
   throw new Error(`could not create a temp dir outside allowed write roots (${errors.join('; ')})`);
 }
+
+after(() => {
+  for (const dir of outsideDirsCreated) {
+    try { rmSync(dir, { recursive: true, force: true }); } catch { /* already gone */ }
+  }
+});
 
 function withTempDir(fn) {
   const dir = mkdtempSync(join(tmpdir(), 'docx-cli-'));
@@ -173,7 +182,7 @@ test('inline: a triple-star run is bold italic', () => {
   assert.deepEqual(compareContent(md, built.buffer, built.model), { ok: true, missing: [], extra: [] });
 });
 
-test('inline: underscores do not fire inside a word and a star closer cannot follow a space', () => {
+test('inline: my__var__name and *nix and *BSD stay unflanked', () => {
   assert.equal(parseInline('my__var__name and __init__').map((r) => r.text).join(''), 'my__var__name and init');
   assert.equal(parseInline('my__var__name').map((r) => r.text).join(''), 'my__var__name');
   assert.equal(parseInline('*nix and *BSD').map((r) => r.text).join(''), '*nix and *BSD');
@@ -426,6 +435,7 @@ test('layout: template parts agree with LAYOUT', () => {
   assert.match(styles, new RegExp(`w:line="${LAYOUT.lineSpacing}"`));
   const numbering = readTemplatePart('word/numbering.xml').toString();
   assert.match(numbering, new RegExp(`<w:lvlText w:val="${LAYOUT.bulletGlyph}"/>`));
+  assert.match(numbering, new RegExp(`w:ascii="${LAYOUT.bulletFont}"`));
   assert.match(numbering, new RegExp(`<w:ind w:left="${LAYOUT.bulletLeft}" w:hanging="${LAYOUT.bulletHanging}"/>`));
   assert.equal(LAYOUT.textWidth, LAYOUT.pageWidth - LAYOUT.marginLeft - LAYOUT.marginRight);
   for (const p of TEMPLATE_PARTS) assert.ok(existsSync(join(TEMPLATE_DIR, p.path)), p.path);
@@ -445,6 +455,15 @@ test('package: every part is declared, related and well formed', () => {
   assert.ok(parts.has('word/document.xml') && types.includes('/word/document.xml'));
   const root = parts.get('_rels/.rels').toString();
   assert.match(root, /Type="http:\/\/schemas\.openxmlformats\.org\/officeDocument\/2006\/relationships\/officeDocument" Target="word\/document\.xml"/);
+});
+
+test('links: rStyle comes before rFonts in rPr', () => {
+  const xml = documentXml(build(MD).buffer);
+  assert.match(xml, /<w:rPr><w:rStyle w:val="Hyperlink"\/><w:rFonts /);
+});
+
+test('buildDocx returns only buffer and model', () => {
+  assert.deepEqual(Object.keys(build(MD)), ['buffer', 'model']);
 });
 
 test('links: a repeated target is stored once, marked external, and escaped', () => {
@@ -611,12 +630,13 @@ test('cli: plain output, a spaced template flag, help, an uppercase extension, a
   });
 });
 
-test('cli: a failed write does not delete an existing .docx', (t) => {
+test('cli: a read-only existing good.docx survives a failed write', (t) => {
   withTempDir((dir) => {
     const input = join(dir, 'ok.md');
-    const output = join(dir, 'cv.docx');
+    const output = join(dir, 'good.docx');
     writeFileSync(input, MD);
     writeFileSync(output, 'OLD-BYTES');
+    chmodSync(output, 0o444);
     chmodSync(dir, 0o555);
     try {
       const result = generateDocx({ input, output });
@@ -626,9 +646,11 @@ test('cli: a failed write does not delete an existing .docx', (t) => {
       }
       assert.match(result.error, /Could not write/);
       chmodSync(dir, 0o700);
+      chmodSync(output, 0o644);
       assert.equal(readFileSync(output, 'utf8'), 'OLD-BYTES');
     } finally {
       try { chmodSync(dir, 0o700); } catch { /* already restored */ }
+      try { chmodSync(output, 0o644); } catch { /* already restored */ }
     }
   });
 });
@@ -663,7 +685,7 @@ test('cli: overwriting keeps the existing file mode', (t) => {
   });
 });
 
-test('cli: a dangling symlink through a linked directory does not write outside', (t) => {
+test('cli: a dangling-symlink chain does not write outside', (t) => {
   withTempDir((scratch) => {
     const input = join(scratch, 'ok.md');
     writeFileSync(input, MD);
@@ -776,4 +798,64 @@ test('cli: CAREER_OPS_ROOT allows the data root', () => {
       rmSync(dataRoot, { recursive: true, force: true });
     }
   });
+});
+
+test('layout: numbering.xml names a bullet glyph font', () => {
+  const numbering = readTemplatePart('word/numbering.xml').toString();
+  assert.match(numbering, new RegExp(`<w:rFonts w:ascii="${LAYOUT.bulletFont}" w:hAnsi="${LAYOUT.bulletFont}" w:cs="${LAYOUT.bulletFont}"/>`));
+  assert.notEqual(LAYOUT.bulletFont, LAYOUT.font);
+});
+
+test('page length: a long document still writes and warns', () => {
+  const items = Array.from({ length: 130 }, (_, i) => `- Uniqueitem${i} word${i}`).join('\n');
+  const md = `# Jane\n\n## Work\n\n${items}\n`;
+  assert.match(pageLengthWarning(200), /longer than two pages/);
+  assert.equal(pageLengthWarning(1), null);
+  withTempDir((dir) => {
+    const input = join(dir, 'ok.md');
+    const output = join(dir, 'cv.docx');
+    writeFileSync(input, md);
+    const result = generateDocx({ input, output });
+    assert.equal(result.ok, true, result.error);
+    assert.match(result.warning, /longer than two pages/);
+    assert.equal(existsSync(output), true);
+  });
+});
+
+test('cli: mkdtempOutsideAllowed dirs are cleaned up in finally', () => {
+  let dir;
+  try {
+    dir = mkdtempOutsideAllowed();
+    assert.equal(existsSync(dir), true);
+  } finally {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  }
+  assert.equal(existsSync(dir), false);
+});
+
+test('cli: mixed-case output roots are allowed on darwin/win32', (t) => {
+  if (process.platform !== 'darwin' && process.platform !== 'win32') {
+    t.skip('case-insensitive filesystems only');
+    return;
+  }
+  const src = readFileSync(join(ROOT, 'generate-docx.mjs'), 'utf8');
+  assert.equal(/generate-pdf\.mjs/.test(src), false, 'output-root policy must stay docx-local');
+  const leaf = ROOT.split(sep).pop();
+  const flipped = leaf.replace(/[A-Za-z]/, (ch) => (ch === ch.toLowerCase() ? ch.toUpperCase() : ch.toLowerCase()));
+  const mixedRoot = join(ROOT.slice(0, ROOT.length - leaf.length), flipped);
+  if (mixedRoot === ROOT || !existsSync(join(mixedRoot, 'generate-docx.mjs'))) {
+    t.skip('could not form a mixed-case spelling of the project root');
+    return;
+  }
+  const dir = mkdtempSync(join(mixedRoot, 'docx-case-'));
+  try {
+    const input = join(dir, 'ok.md');
+    const output = join(dir, 'cv.docx');
+    writeFileSync(input, MD);
+    const r = spawnSync(process.execPath, [join(mixedRoot, 'generate-docx.mjs'), input, output], { encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(existsSync(output), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

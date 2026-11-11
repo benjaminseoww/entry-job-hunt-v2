@@ -3,3 +3,5 @@
 generate-docx.mjs
 lib/docx-resume.mjs
 lib/docx-zip.mjs
+templates/docx/
+tests/docx-resume.test.mjs

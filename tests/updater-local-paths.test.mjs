@@ -123,19 +123,33 @@ console.log('\n🧪 Local user-paths declaration file (#2421)\n');
   }
 }
 
-// ── 7. A collision inside a SYSTEM_PATHS *directory* is refused too ──
-//    'modes/' is a directory entry; modes/pdf.md is shipped by it.
+// ── 7. A nested path under a SYSTEM_PATHS directory is allowed ──
+//    Forks declare templates/docx/ and tests/docx-resume.test.mjs while
+//    templates/ and tests/ stay system prefixes. Exact system entries still
+//    collide (test 6).
 {
   let threw = null;
   try {
-    localUserPaths(root('modes/pdf.md\n'));
+    localUserPaths(root('templates/docx/\ntests/docx-resume.test.mjs\n'));
   } catch (err) {
     threw = err;
   }
-  if (threw && threw.message.includes('modes/pdf.md')) {
-    pass('a file inside a system directory is refused too');
+  if (!threw) {
+    pass('a nested path under a system directory is allowed');
   } else {
-    fail(`#7 expected a throw naming modes/pdf.md, got ${threw ? threw.message : 'no throw'}`);
+    fail(`#7 nested fork paths should be allowed, got ${threw.message}`);
+  }
+
+  let exactThrew = null;
+  try {
+    localUserPaths(root('templates/\n'));
+  } catch (err) {
+    exactThrew = err;
+  }
+  if (exactThrew && exactThrew.message.includes('templates/')) {
+    pass('the exact system directory templates/ is still refused');
+  } else {
+    fail(`#7 expected a throw naming templates/, got ${exactThrew ? exactThrew.message : 'no throw'}`);
   }
 }
 

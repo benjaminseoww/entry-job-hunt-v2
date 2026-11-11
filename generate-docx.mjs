@@ -35,7 +35,7 @@ import { fileURLToPath } from 'node:url';
 import { validateFlags } from './lib/cli-flags.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
-import { buildDocx, compareContent } from './lib/docx-resume.mjs';
+import { buildDocx, compareContent, extractDocxParagraphs, pageLengthWarning } from './lib/docx-resume.mjs';
 
 const PROJECT_ROOT = dirname(fileURLToPath(import.meta.url));
 const KNOWN_FLAGS = ['--template', '--json', '--help', '-h'];
@@ -53,9 +53,13 @@ word gained or lost fails the run and writes nothing.
   --json           print the result as JSON
   --help, -h       show this message`;
 
+function foldCase(p) {
+  return (process.platform === 'darwin' || process.platform === 'win32') ? p.toLowerCase() : p;
+}
+
 function inside(root, target) {
-  const r = resolve(root);
-  const t = resolve(target);
+  const r = foldCase(resolve(root));
+  const t = foldCase(resolve(target));
   return t === r || t.startsWith(r.endsWith(sep) ? r : r + sep);
 }
 
@@ -131,7 +135,7 @@ function writeDocxAtomically(realParent, name, buffer) {
  * Generate and verify one document.
  *
  * @param {{input: string, output: string, template?: string}} args
- * @returns {{ok: true, output: string, bytes: number, sections: number} | {ok: false, error: string, missing?: string[], extra?: string[]}}
+ * @returns {{ok: true, output: string, bytes: number, sections: number, warning?: string} | {ok: false, error: string, missing?: string[], extra?: string[]}}
  */
 export function generateDocx({ input, output, template = 'garamond' }) {
   if (!/^[a-z0-9][a-z0-9-]*$/i.test(template)) return { ok: false, error: `Invalid template name: ${template}` };
@@ -191,9 +195,16 @@ export function generateDocx({ input, output, template = 'garamond' }) {
     return { ok: false, error: OUTSIDE_ERROR };
   }
 
+  const warning = pageLengthWarning(extractDocxParagraphs(built.buffer).length);
   try {
     writeDocxAtomically(realParent, name, built.buffer);
-    return { ok: true, output: out, bytes: built.buffer.length, sections: built.model.sections.length };
+    return {
+      ok: true,
+      output: out,
+      bytes: built.buffer.length,
+      sections: built.model.sections.length,
+      ...(warning ? { warning } : {}),
+    };
   } catch (error) {
     return { ok: false, error: `Could not write ${output}: ${error.message}` };
   }
@@ -219,8 +230,10 @@ async function main() {
   }
   const result = generateDocx({ input: positional[0], output: positional[1], template });
   if (json) console.log(JSON.stringify(result, null, 2));
-  else if (result.ok) console.log(`Wrote ${result.output} (${result.bytes} bytes, ${result.sections} sections); content verified against the markdown`);
-  else {
+  else if (result.ok) {
+    console.log(`Wrote ${result.output} (${result.bytes} bytes, ${result.sections} sections); content verified against the markdown`);
+    if (result.warning) console.error(`generate-docx: ${result.warning}`);
+  } else {
     console.error(`generate-docx: ${result.error}`);
     if (result.missing?.length) console.error(`  missing from the document: ${result.missing.join(' ')}`);
     if (result.extra?.length) console.error(`  not in the markdown: ${result.extra.join(' ')}`);
