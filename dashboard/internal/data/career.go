@@ -946,7 +946,7 @@ var trackerHeaderAliases = map[string]string{
 	"via": "via", "role": "role", "puesto": "role",
 	"rolle": "role", "rola": "role", "vaga": "role",
 	"location": "location", "ort": "location", "score": "score", "status": "status",
-	"pdf": "pdf", "materials": "pdf", "report": "report",
+	"pdf": "pdf", "materials": "pdf", "word": "pdf", "report": "report",
 	"apply link": "applylink", "apply": "applylink",
 	"follow-up": "followup", "follow up": "followup", "followup": "followup",
 	"notes": "notes", "url": "url",

@@ -104,6 +104,24 @@ func TestLocalizedTrackerHeaders(t *testing.T) {
 	}
 }
 
+func TestWordHeaderAliasMapsPDFCell(t *testing.T) {
+	t.Setenv("CAREER_OPS_TRACKER", "")
+	header := "| # | Date | Company | Role | Score | Status | Word | Report | Notes |"
+	row := "| 41 | 2026-01-02 | Acme | Engineer | 4.2/5 | Applied | ✅ | [41](reports/041.md) | keep |"
+	dir, _ := writeTracker(t, header+"\n"+row+"\n")
+	apps := mustParseApplications(t, dir)
+	if len(apps) != 1 {
+		t.Fatalf("expected exactly one application, got %d", len(apps))
+	}
+	a := apps[0]
+	if a.Company != "Acme" || a.Role != "Engineer" || a.Status != "Applied" || a.Notes != "keep" {
+		t.Fatalf("Word header misaligned the CV cell's neighbours: %+v", a)
+	}
+	if !a.HasPDF {
+		t.Fatal("HasPDF = false, want true: | Word | must resolve to the pdf field")
+	}
+}
+
 func TestTrackerAliasHeaderControls(t *testing.T) {
 	t.Setenv("CAREER_OPS_TRACKER", "")
 	for _, labels := range []string{"Num | Date | Company | Role", "Num | Fecha | Empresa | Puesto", "# | Datum | Firma | Rolle"} {
