@@ -15,7 +15,7 @@
 4. **Tamamlanınca** özet tabloyu göster:
 
 ```text
-| # | Şirket | Rol | Puan | PDF | Önerilen eylem |
+| # | Şirket | Rol | Puan | CV | Önerilen eylem |
 ```
 
 ## pipeline.md Formatı

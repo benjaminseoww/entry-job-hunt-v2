@@ -914,12 +914,14 @@ function checkPrereq(prereq) {
 }
 
 function checkFonts() {
+  // Word (.docx) output names Garamond in the template and does not use fonts/.
+  // This check is for the HTML/PDF path only.
   const fontsDir = join(__dirname, 'fonts');
   if (!existsSync(fontsDir)) {
     return {
       pass: false,
       label: 'fonts/ directory not found',
-      fix: 'The fonts/ directory is required for PDF generation',
+      fix: 'The fonts/ directory is required for PDF generation. Word (.docx) output does not use fonts/.',
     };
   }
   try {
@@ -928,7 +930,7 @@ function checkFonts() {
       return {
         pass: false,
         label: 'fonts/ directory is empty',
-        fix: 'The fonts/ directory must contain font files for PDF generation',
+        fix: 'The fonts/ directory must contain font files for PDF generation. Word (.docx) output does not use fonts/.',
       };
     }
   } catch {
@@ -938,7 +940,7 @@ function checkFonts() {
       fix: 'Check permissions on the fonts/ directory',
     };
   }
-  return { pass: true, label: 'Fonts directory ready' };
+  return { pass: true, label: 'Fonts directory ready (PDF path; Word output does not use fonts/)' };
 }
 
 function checkAutoDir(name) {

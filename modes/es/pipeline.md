@@ -15,7 +15,7 @@ Procesa las URLs de ofertas acumuladas en `data/pipeline.md`. El candidato añad
 4. **Al final**, mostrar una tabla resumen:
 
 ```
-| # | Empresa | Rol | Score | PDF | Acción recomendada |
+| # | Empresa | Rol | Score | CV | Acción recomendada |
 ```
 
 ## Formato de pipeline.md

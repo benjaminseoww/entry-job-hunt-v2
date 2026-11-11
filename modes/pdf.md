@@ -1,5 +1,7 @@
 # Mode: pdf — ATS-Optimized PDF Generation
 
+This is the HTML → PDF render path. When `cv.output_format` is `"docx"`, use `/career-ops docx` (`modes/docx.md`) instead — same tailoring and fact-gate steps, Word output.
+
 Optional passes:
 - **`--hm-audit`:** `/career-ops pdf --hm-audit` adds the hiring-manager audit at Step 20 — an adversarial read of the tailored CV by a separate, research-grounded reviewer before it becomes a PDF (`modes/pdf/hm-audit.md`). Off by default: it costs a subagent dispatch plus web research. Turn it on per run with the flag, or for every run in your own `modes/_custom.md`.
 - **`--ats`:** `/career-ops pdf --ats` adds Step 21a — a second, ATS-parseable render of the same tailored CV, for the application form you paste into while the styled PDF is the one you attach. Off by default: only candidates applying through ATS text forms need it, and everyone else would pay a second render for nothing. Turn it on per run with the flag, or for every run in your own `modes/_custom.md`.

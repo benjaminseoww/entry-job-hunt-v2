@@ -15,7 +15,7 @@ Elabora gli URL degli annunci accumulati in `data/pipeline.md`. Il candidato agg
 4. **Al termine**, mostrare una tabella riassuntiva:
 
 ```
-| # | Azienda | Ruolo | Punteggio | PDF | Azione raccomandata |
+| # | Azienda | Ruolo | Punteggio | CV | Azione raccomandata |
 ```
 
 ## Formato di pipeline.md

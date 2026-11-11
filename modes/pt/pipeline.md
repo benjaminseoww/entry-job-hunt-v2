@@ -16,7 +16,7 @@ Processa URLs de vagas acumuladas em `data/pipeline.md`. O candidato adiciona UR
 4. **Ao terminar**, mostrar tabela resumo:
 
 ```
-| # | Empresa | Vaga | Score | PDF | Ação recomendada |
+| # | Empresa | Vaga | Score | CV | Ação recomendada |
 ```
 
 ## Formato de pipeline.md
