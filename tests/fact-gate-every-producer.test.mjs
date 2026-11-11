@@ -195,6 +195,18 @@ function runDocx(root, ...args) {
   });
 }
 
+test('generate-docx reports a passing fact check', (t) => {
+  const root = workspace();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const md = join(root, 'ok.md');
+  const out = join(root, 'output', 'cv.docx');
+  writeFileSync(md, docxMd('Led a team of 4 engineers.'));
+  const result = runDocx(root, md, out, '--json');
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout).factCheck, { verdict: 'pass' });
+  assert.doesNotMatch(result.stderr, /fact gate skipped/);
+});
+
 test('generate-docx blocks an unsupported claim and does not write', (t) => {
   const root = workspace();
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -217,8 +229,34 @@ test('generate-docx --skip-fact-check writes an inflated document', (t) => {
   writeFileSync(md, docxMd('Led a team of 40 engineers.'));
   const result = runDocx(root, md, out, '--skip-fact-check', '--json');
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(JSON.parse(result.stdout).ok, true);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.ok, true);
+  assert.deepEqual(parsed.factCheck, { verdict: 'skipped', reason: '--skip-fact-check' });
+  assert.match(result.stderr, /fact gate skipped: --skip-fact-check/);
   assert.equal(existsSync(out), true);
+
+  const plain = runDocx(root, md, join(root, 'output', 'cv-plain.docx'), '--skip-fact-check');
+  assert.equal(plain.status, 0, plain.stderr);
+  assert.match(plain.stderr, /fact gate skipped: --skip-fact-check/);
+});
+
+test('generate-docx with no cv.md skips the fact gate', (t) => {
+  const root = workspace({ withCv: false });
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const md = join(root, 'ok.md');
+  const out = join(root, 'output', 'cv.docx');
+  writeFileSync(md, docxMd('Led a team of 4 engineers.'));
+  const result = runDocx(root, md, out, '--json');
+  assert.equal(result.status, 0, result.stderr);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.factCheck.verdict, 'skipped');
+  assert.match(parsed.factCheck.reason, /no cv\.md/);
+  assert.match(result.stderr, /fact gate skipped: no cv\.md/);
+
+  const plain = runDocx(root, md, join(root, 'output', 'cv-plain.docx'));
+  assert.equal(plain.status, 0, plain.stderr);
+  assert.match(plain.stderr, /fact gate skipped: no cv\.md/);
 });
 
 test('generate-latex --skip-fact-check and a missing cv.md skip the gate', (t) => {
