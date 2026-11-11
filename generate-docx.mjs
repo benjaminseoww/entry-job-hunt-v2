@@ -4,7 +4,7 @@
  * generate-docx.mjs — render a tailored resume markdown file as a Word
  * document in the Garamond layout of templates/docx/garamond/.
  *
- *   node generate-docx.mjs <tailored.md> <out.docx> [--template=garamond] [--json]
+ *   node generate-docx.mjs <tailored.md> <out.docx> [--template=garamond] [--json] [--skip-fact-check]
  *
  * Headings and section order come from the markdown exactly as written; the
  * template supplies only the look (see lib/docx-resume.mjs for the three
@@ -35,23 +35,26 @@ import { fileURLToPath } from 'node:url';
 import { validateFlags } from './lib/cli-flags.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
+import { assertFacts } from './verify-cv-facts.mjs';
 import { buildDocx, compareContent, pageLengthWarning } from './lib/docx-resume.mjs';
 
 const PROJECT_ROOT = dirname(fileURLToPath(import.meta.url));
-const KNOWN_FLAGS = ['--template', '--json', '--help', '-h'];
+const KNOWN_FLAGS = ['--template', '--json', '--skip-fact-check', '--help', '-h'];
 const VALUE_FLAGS = ['--template'];
 const OUTSIDE_ERROR = 'Refusing to write the .docx outside the project directory, data root, or temp directory';
 const USAGE = `Usage:
-  node generate-docx.mjs <tailored.md> <out.docx> [--template=garamond] [--json]
+  node generate-docx.mjs <tailored.md> <out.docx> [--template=garamond] [--json] [--skip-fact-check]
 
 Renders a tailored resume markdown file as a Word document. Headings and
 section order are taken from the markdown unchanged; the template supplies the
 look only. The output is compared with the markdown before it is written; any
-word gained or lost fails the run and writes nothing.
+word gained or lost fails the run and writes nothing. The fact gate runs when
+the data root has a cv.md; a blocked document is not written.
 
-  --template=NAME  template under templates/docx/ (default: garamond)
-  --json           print the result as JSON
-  --help, -h       show this message`;
+  --template=NAME       template under templates/docx/ (default: garamond)
+  --json                print the result as JSON
+  --skip-fact-check     write without running the fact gate
+  --help, -h            show this message`;
 
 function realNative(p) {
   try { return realpathSync.native(p); } catch { return resolve(p); }
@@ -134,10 +137,10 @@ function writeDocxAtomically(realParent, name, buffer) {
 /**
  * Generate and verify one document.
  *
- * @param {{input: string, output: string, template?: string}} args
- * @returns {{ok: true, output: string, bytes: number, sections: number, warning?: string} | {ok: false, error: string, missing?: string[], extra?: string[]}}
+ * @param {{input: string, output: string, template?: string, skipFactCheck?: boolean}} args
+ * @returns {{ok: true, output: string, bytes: number, sections: number, factCheck: {verdict: 'pass'|'skipped', reason?: string}, warning?: string} | {ok: false, error: string, missing?: string[], extra?: string[]}}
  */
-export function generateDocx({ input, output, template = 'garamond' }) {
+export function generateDocx({ input, output, template = 'garamond', skipFactCheck = false }) {
   if (!/^[a-z0-9][a-z0-9-]*$/i.test(template)) return { ok: false, error: `Invalid template name: ${template}` };
   if (extname(output).toLowerCase() !== '.docx') return { ok: false, error: `Output must end in .docx: ${output}` };
   const out = resolve(output);
@@ -180,6 +183,29 @@ export function generateDocx({ input, output, template = 'garamond' }) {
     };
   }
 
+  let factCheck;
+  if (skipFactCheck) {
+    factCheck = { verdict: 'skipped', reason: '--skip-fact-check' };
+  } else {
+    const root = getCareerOpsRoot();
+    const cvPath = join(root, 'cv.md');
+    if (!existsSync(cvPath)) {
+      factCheck = { verdict: 'skipped', reason: `no cv.md in ${root}` };
+    } else {
+      try {
+        assertFacts(markdown, {
+          sourcePaths: [cvPath, join(root, 'article-digest.md')],
+          configPath: join(root, 'config', 'cv-facts.json'),
+          label: basename(input),
+          format: 'text',
+        });
+        factCheck = { verdict: 'pass' };
+      } catch (error) {
+        return { ok: false, error: error.message };
+      }
+    }
+  }
+
   try {
     mkdirSync(parent, { recursive: true });
   } catch (error) {
@@ -203,6 +229,7 @@ export function generateDocx({ input, output, template = 'garamond' }) {
       output: out,
       bytes: built.buffer.length,
       sections: built.model.sections.length,
+      factCheck,
       ...(warning ? { warning } : {}),
     };
   } catch (error) {
@@ -216,9 +243,11 @@ async function main() {
   const positional = [];
   let template = 'garamond';
   let json = false;
+  let skipFactCheck = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--json') json = true;
+    else if (a === '--skip-fact-check') skipFactCheck = true;
     else if (a.startsWith('--template=')) template = a.slice('--template='.length);
     else if (a === '--template') template = argv[++i];
     else positional.push(a);
@@ -228,7 +257,10 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  const result = generateDocx({ input: positional[0], output: positional[1], template });
+  const result = generateDocx({ input: positional[0], output: positional[1], template, skipFactCheck });
+  if (result.factCheck?.verdict === 'skipped') {
+    console.error(`fact gate skipped: ${result.factCheck.reason}`);
+  }
   if (json) console.log(JSON.stringify(result, null, 2));
   else if (result.ok) {
     console.log(`Wrote ${result.output} (${result.bytes} bytes, ${result.sections} sections); content verified against the markdown`);

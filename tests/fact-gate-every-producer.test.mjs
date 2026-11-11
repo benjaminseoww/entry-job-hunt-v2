@@ -29,9 +29,9 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
 // A step that builds or writes a CV. `--preview` and `--test` produce nothing
 // to send.
-const PRODUCER_RE = /node (?:build-cv-html|build-cv-latex|patch-latex-content)\.mjs (?!--preview|--test)|Write to `output\/cv-/;
+const PRODUCER_RE = /node (?:build-cv-html|build-cv-latex|patch-latex-content|generate-docx)\.mjs (?!--preview|--test)|Write to `output\/cv-/;
 // The gate itself, or a renderer that runs it before writing its output.
-const GATE_RE = /node (?:verify-cv-facts|generate-pdf|generate-latex)\.mjs/;
+const GATE_RE = /node (?:verify-cv-facts|generate-pdf|generate-latex|generate-docx)\.mjs/;
 // Renderers that run the gate in code. Asserted below, so this list cannot
 // claim a renderer gates when it does not.
 const GATED_RENDERERS = ['generate-pdf.mjs', 'generate-latex.mjs', 'generate-cover-letter.mjs'];
@@ -43,7 +43,7 @@ const modeFiles = () => listTree(join(ROOT, 'modes'), { match: /\.md$/ });
 test('every mode that builds or writes a CV runs the fact gate', () => {
   const producers = modeFiles().filter(path => PRODUCER_RE.test(readFileSync(path, 'utf-8')));
   const names = producers.map(repoPath);
-  for (const expected of ['modes/pdf.md', 'modes/latex.md', 'modes/latex-tex.md', 'modes/text.md', 'modes/ats.md']) {
+  for (const expected of ['modes/pdf.md', 'modes/latex.md', 'modes/latex-tex.md', 'modes/text.md', 'modes/ats.md', 'modes/docx.md']) {
     assert.ok(names.includes(expected), `the producer scan no longer finds ${expected}; fix PRODUCER_RE before trusting this test`);
   }
   const ungated = producers.filter(path => !GATE_RE.test(readFileSync(path, 'utf-8')));
@@ -169,6 +169,94 @@ test('generate-latex names a --source file that does not exist', (t) => {
   assert.equal(result.report?.factCheck?.verdict, 'block', result.stdout + result.stderr);
   assert.match(result.report.factCheck.reason, /--source file not found: .*no-such\.tex/);
   assert.equal(result.report.compileError, undefined, 'compilation was attempted after a missing --source');
+});
+
+const docxMd = (bullet) => `# CV -- Jane Doe
+
+**Email:** jane@example.com
+
+## Experience
+
+### Acme Corp -- Remote
+
+**Senior Software Engineer**
+2019 – 2024
+
+- ${bullet}
+- Reduced latency by 15%.
+`;
+
+function runDocx(root, ...args) {
+  return spawnSync(process.execPath, [join(ROOT, 'generate-docx.mjs'), ...args], {
+    cwd: root,
+    encoding: 'utf-8',
+    timeout: 30_000,
+    env: { ...process.env, CAREER_OPS_ROOT: root, CAREER_OPS_DATA_DIR: '' },
+  });
+}
+
+test('generate-docx reports a passing fact check', (t) => {
+  const root = workspace();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const md = join(root, 'ok.md');
+  const out = join(root, 'output', 'cv.docx');
+  writeFileSync(md, docxMd('Led a team of 4 engineers.'));
+  const result = runDocx(root, md, out, '--json');
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout).factCheck, { verdict: 'pass' });
+  assert.doesNotMatch(result.stderr, /fact gate skipped/);
+});
+
+test('generate-docx blocks an unsupported claim and does not write', (t) => {
+  const root = workspace();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const md = join(root, 'inflated.md');
+  const out = join(root, 'output', 'cv.docx');
+  writeFileSync(md, docxMd('Led a team of 40 engineers.'));
+  const result = runDocx(root, md, out, '--json');
+  assert.equal(result.status, 1, result.stderr);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.ok, false);
+  assert.match(parsed.error, /40 engineers/);
+  assert.equal(existsSync(out), false);
+});
+
+test('generate-docx --skip-fact-check writes an inflated document', (t) => {
+  const root = workspace();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const md = join(root, 'inflated.md');
+  const out = join(root, 'output', 'cv.docx');
+  writeFileSync(md, docxMd('Led a team of 40 engineers.'));
+  const result = runDocx(root, md, out, '--skip-fact-check', '--json');
+  assert.equal(result.status, 0, result.stderr);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.ok, true);
+  assert.deepEqual(parsed.factCheck, { verdict: 'skipped', reason: '--skip-fact-check' });
+  assert.match(result.stderr, /fact gate skipped: --skip-fact-check/);
+  assert.equal(existsSync(out), true);
+
+  const plain = runDocx(root, md, join(root, 'output', 'cv-plain.docx'), '--skip-fact-check');
+  assert.equal(plain.status, 0, plain.stderr);
+  assert.match(plain.stderr, /fact gate skipped: --skip-fact-check/);
+});
+
+test('generate-docx with no cv.md skips the fact gate', (t) => {
+  const root = workspace({ withCv: false });
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const md = join(root, 'ok.md');
+  const out = join(root, 'output', 'cv.docx');
+  writeFileSync(md, docxMd('Led a team of 4 engineers.'));
+  const result = runDocx(root, md, out, '--json');
+  assert.equal(result.status, 0, result.stderr);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.factCheck.verdict, 'skipped');
+  assert.match(parsed.factCheck.reason, /no cv\.md/);
+  assert.match(result.stderr, /fact gate skipped: no cv\.md/);
+
+  const plain = runDocx(root, md, join(root, 'output', 'cv-plain.docx'));
+  assert.equal(plain.status, 0, plain.stderr);
+  assert.match(plain.stderr, /fact gate skipped: no cv\.md/);
 });
 
 test('generate-latex --skip-fact-check and a missing cv.md skip the gate', (t) => {
