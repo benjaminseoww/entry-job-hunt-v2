@@ -15,16 +15,20 @@
  * This script writes the .docx only. It does not touch the tracker, the PDF
  * index or any report; wiring those is a later step.
  *
- * Writes go to a temp file in the real parent directory, then renameSync onto
- * the destination basename. rename replaces a symlink instead of following it,
- * so a dangling link cannot smuggle the bytes outside the allowed roots, and a
- * failed write deletes only the temp file, never an existing .docx.
+ * Writes go to a temp file in the real parent directory (random suffix, wx),
+ * then renameSync onto the destination basename. rename replaces a symlink
+ * instead of following it, so a dangling link cannot smuggle the bytes outside
+ * the allowed roots. A failed write deletes only the temp file this run
+ * created, never an existing .docx. An existing destination keeps its mode.
+ * If the destination is open in Word (EPERM/EBUSY), the rename is retried
+ * briefly and the error asks to close the file and retry.
  *
  * Exit codes: 0 written and verified, 1 failed (bad input, unsupported
  * markdown, content mismatch, unwritable output).
  */
 
-import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, realpathSync, renameSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, realpathSync, renameSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -74,14 +78,50 @@ function nearestRealAncestor(p) {
   return realOrSelf(dir);
 }
 
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function renameDocx(tmpPath, destination) {
+  const name = basename(destination);
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      renameSync(tmpPath, destination);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (error.code !== 'EPERM' && error.code !== 'EBUSY') throw error;
+      if (attempt < 2) sleepSync(100);
+    }
+  }
+  throw new Error(`close ${name} in Word and retry (${lastError.message})`);
+}
+
 function writeDocxAtomically(realParent, name, buffer) {
-  const tmpPath = join(realParent, `.${name}.${process.pid}.tmp`);
   const destination = join(realParent, name);
+  const mode = existsSync(destination) ? statSync(destination).mode & 0o777 : undefined;
+  const writeOpts = mode != null ? { flag: 'wx', mode } : { flag: 'wx' };
+  let tmpPath;
+  let created = false;
   try {
-    writeFileSync(tmpPath, buffer, { flag: 'wx' });
-    renameSync(tmpPath, destination);
+    for (let attempt = 0; attempt < 8; attempt++) {
+      tmpPath = join(realParent, `.${name}.${randomBytes(6).toString('hex')}.tmp`);
+      try {
+        writeFileSync(tmpPath, buffer, writeOpts);
+        created = true;
+        break;
+      } catch (error) {
+        if (error.code === 'EEXIST' && attempt < 7) continue;
+        throw error;
+      }
+    }
+    if (!created) throw new Error(`Could not create a unique temp file for ${name}`);
+    renameDocx(tmpPath, destination);
   } catch (error) {
-    try { rmSync(tmpPath, { force: true }); } catch { /* never delete the destination */ }
+    if (created) {
+      try { rmSync(tmpPath, { force: true }); } catch { /* never delete the destination */ }
+    }
     throw error;
   }
   return destination;

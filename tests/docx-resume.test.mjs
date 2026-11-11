@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -67,7 +67,7 @@ const MD = `# CV -- Jane Smith
 
 ## Professional Summary
 
-Builds things & ships <fast> software.
+Builds things & ships a < b software.
 
 ## Work Experience
 
@@ -159,6 +159,20 @@ test('inline: bold, italic, links, code and escapes', () => {
   assert.equal(wiki[0].link, 'https://en.wikipedia.org/wiki/Foo_(bar)');
 });
 
+test('inline: a triple-star run is bold italic', () => {
+  const runs = parseInline('***Led*** the team');
+  assert.equal(runs[0].text, 'Led');
+  assert.equal(runs[0].bold, true);
+  assert.equal(runs[0].italic, true);
+  assert.equal(runs.map((r) => r.text).join(''), 'Led the team');
+  assert.equal(stripInlineMarkers('***Led*** the team'), 'Led the team');
+  const md = '# Jane\n\n## Work\n\n- ***Led*** the team\n';
+  const built = build(md);
+  const paragraphs = extractDocxParagraphs(built.buffer);
+  assert.ok(paragraphs.some((p) => p.includes('Led') && !p.includes('*Led*')), paragraphs.join('\n'));
+  assert.deepEqual(compareContent(md, built.buffer, built.model), { ok: true, missing: [], extra: [] });
+});
+
 test('inline: underscores do not fire inside a word and a star closer cannot follow a space', () => {
   assert.equal(parseInline('my__var__name and __init__').map((r) => r.text).join(''), 'my__var__name and init');
   assert.equal(parseInline('my__var__name').map((r) => r.text).join(''), 'my__var__name');
@@ -181,6 +195,27 @@ test('blocks: refuses tables, code fences, images, blockquotes and numbered list
   for (const bad of ['| a | b |', '```js', '![x](y.png)', '> quote', '1. First', '2) Second']) {
     assert.throws(() => parseBlocks(`# N\n\n## S\n\n${bad}\n`), /Unsupported markdown/, bad);
   }
+});
+
+test('blocks: a numbered list after a paragraph is refused', () => {
+  assert.throws(
+    () => parseBlocks('# Jane\n\n## Work\n\nKey wins:\n1. Shipped X\n2. Cut cost 30%\n'),
+    /Unsupported markdown \(numbered list\)/,
+  );
+});
+
+test('blocks: refuses raw inline HTML', () => {
+  assert.throws(
+    () => parseBlocks('# Jane\n\n## Work\n\n- Line one<br>line two\n'),
+    /Unsupported markdown \(HTML\)/,
+  );
+});
+
+test('blocks: refuses empty link text', () => {
+  assert.throws(
+    () => parseBlocks('# Jane\n\n## Work\n\n[](https://x.com)\n'),
+    /Unsupported markdown \(empty link text\)/,
+  );
 });
 
 test('blocks: rules, comments, wrapped lines and Windows newlines', () => {
@@ -451,8 +486,8 @@ test('links: email and domains become hyperlinks; unsafe schemes do not', () => 
 
 test('escaping: markup characters in the text stay text', () => {
   const xml = documentXml(build(MD).buffer);
-  assert.ok(xml.includes('Builds things &amp; ships &lt;fast&gt; software.'));
-  assert.ok(!xml.includes('<fast>'));
+  assert.ok(xml.includes('Builds things &amp; ships a &lt; b software.'));
+  assert.ok(!xml.includes(' a < b '));
 });
 
 test('content check: passes on the real output and catches gained or lost words', () => {
@@ -576,22 +611,55 @@ test('cli: plain output, a spaced template flag, help, an uppercase extension, a
   });
 });
 
-test('cli: a failed write does not delete an existing .docx', () => {
+test('cli: a failed write does not delete an existing .docx', (t) => {
   withTempDir((dir) => {
     const input = join(dir, 'ok.md');
     const output = join(dir, 'cv.docx');
     writeFileSync(input, MD);
     writeFileSync(output, 'OLD-BYTES');
-    const trap = join(dir, `.cv.docx.${process.pid}.tmp`);
-    mkdirSync(trap);
+    chmodSync(dir, 0o555);
     try {
       const result = generateDocx({ input, output });
-      assert.equal(result.ok, false, result.error);
+      if (result.ok) {
+        t.skip('directory mode does not block writes on this platform');
+        return;
+      }
       assert.match(result.error, /Could not write/);
+      chmodSync(dir, 0o700);
       assert.equal(readFileSync(output, 'utf8'), 'OLD-BYTES');
     } finally {
-      rmSync(trap, { recursive: true, force: true });
+      try { chmodSync(dir, 0o700); } catch { /* already restored */ }
     }
+  });
+});
+
+test('cli: a planted temp-looking file is left alone', () => {
+  withTempDir((dir) => {
+    const input = join(dir, 'ok.md');
+    const output = join(dir, 'cv.docx');
+    writeFileSync(input, MD);
+    const planted = join(dir, `.cv.docx.${process.pid}.tmp`);
+    writeFileSync(planted, 'PLANTED');
+    const result = generateDocx({ input, output });
+    assert.equal(result.ok, true, result.error);
+    assert.equal(readFileSync(planted, 'utf8'), 'PLANTED');
+  });
+});
+
+test('cli: overwriting keeps the existing file mode', (t) => {
+  withTempDir((dir) => {
+    const input = join(dir, 'ok.md');
+    const output = join(dir, 'cv.docx');
+    writeFileSync(input, MD);
+    writeFileSync(output, 'OLD', { mode: 0o600 });
+    const before = statSync(output).mode & 0o777;
+    if (before !== 0o600) {
+      t.skip(`file mode is not honoured (got ${before.toString(8)})`);
+      return;
+    }
+    const result = generateDocx({ input, output });
+    assert.equal(result.ok, true, result.error);
+    assert.equal(statSync(output).mode & 0o777, 0o600);
   });
 });
 
