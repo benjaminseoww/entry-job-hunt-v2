@@ -79,7 +79,7 @@ export function ApplyChecklist({
       </Section>
 
       <Section title="Resume and cover letter">
-        <PdfRow label="Resume" file={resume} empty="No resume in the PDF index for this report." />
+        <PdfRow label="Resume" file={resume} empty="No resume indexed for this report." />
         <PdfRow label="Cover letter" file={cover} empty="No cover letter in the PDF index for this report." />
       </Section>
 

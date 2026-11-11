@@ -10,7 +10,7 @@ import { digitArg } from "@/lib/run-core-script";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const FALLBACK = "could not mark the PDF ready";
+const FALLBACK = "could not mark the CV ready";
 
 // Flip the tracker PDF cell the way a CV Studio render does, through
 // markTrackerReady. The script lives in the code checkout, which can differ

@@ -13,11 +13,13 @@ import { careerOpsRoot, readMemory, findReportFile, readInbox, readScanDates, re
 import { resolvePdfPaths, type PdfPaths } from "@/lib/pdf-paths.mjs";
 import { renderAndMarkPdf, writeCvHtml, pdfRunOutcome } from "@/lib/pdf-render.mjs";
 import { createCvEnvelopeFilter, type CvEnvelope } from "@/lib/cv-envelope.mjs";
+import { resolveDocxPaths, renderAndMarkDocx, writeCvMarkdown, docxRunOutcome, type DocxPaths } from "@/lib/docx-render.mjs";
+import { createDocxEnvelopeFilter, type DocxEnvelope } from "@/lib/docx-envelope.mjs";
 import { createReportEnvelopeFilter } from "@/lib/report-envelope.mjs";
 import { persistEvaluation, evaluateRunOutcome } from "@/lib/report-persist.mjs";
 import { buildPrompt, isShellSafeCompanyName } from "@/lib/run-prompts.mjs";
 import { parseCoverRequest } from "@/lib/cover-brief.mjs";
-import { capabilitiesFor } from "@/lib/worker-capabilities.mjs";
+import { capabilitiesFor, isCvWorkerKind } from "@/lib/worker-capabilities.mjs";
 import { fencingReport, isCliAllowedForCapabilities } from "@/lib/cli-fencing.mjs";
 import { claudeCliArgs } from "@/lib/claude-invocation.mjs";
 import { resolveCvTemplate } from "@/lib/core/cv-template.mjs";
@@ -62,7 +64,7 @@ export async function POST(req: Request) {
   // it to modes/oferta.md meant a configured market passed a check on a file the
   // run never opens, and would have missed a market dir with no evaluation mode.
   const lang = readLanguageConfig();
-  const needsScript: Record<string, string> = { evaluate: lang.evalModeFile, "fix-portal": "verify-portals.mjs", pdf: "generate-pdf.mjs", cover: "modes/cover.md" };
+  const needsScript: Record<string, string> = { evaluate: lang.evalModeFile, "fix-portal": "verify-portals.mjs", pdf: "generate-pdf.mjs", docx: "generate-docx.mjs", cover: "modes/cover.md" };
   const required = needsScript[kind];
   // CAREER_OPS_ROOT is runtime user data, not a build input. Tracing this
   // dynamic path would copy the whole web project into every server bundle.
@@ -91,7 +93,7 @@ export async function POST(req: Request) {
 
   // An A–F score is meaningless without a CV to score against — the CLI would
   // hallucinate a fit narrative and still emit a VERDICT. Require cv.md first.
-  if ((kind === "evaluate" || kind === "pdf" || kind === "cover") && !fs.existsSync(path.join(careerOpsRoot(), "cv.md"))) {
+  if ((kind === "evaluate" || isCvWorkerKind(kind) || kind === "cover") && !fs.existsSync(path.join(careerOpsRoot(), "cv.md"))) {
     return new Response(
       JSON.stringify({ error: "Add your CV first so I can score this against you — drop it on the home page." }),
       { status: 400, headers: { "Content-Type": "application/json" } },
@@ -106,6 +108,7 @@ export async function POST(req: Request) {
   // from this run's freshly parsed envelope before any render, and the agent is
   // no longer told these paths, so a stale file cannot survive into a render.
   let pdfPaths: PdfPaths | undefined;
+  let docxPaths: DocxPaths | undefined;
   if (kind === "pdf") {
     const pathsResult = resolvePdfPaths(input, today, careerOpsRoot(), findReportFile);
     if (!pathsResult.ok) {
@@ -115,6 +118,16 @@ export async function POST(req: Request) {
       });
     }
     pdfPaths = pathsResult.paths;
+  }
+  if (kind === "docx") {
+    const pathsResult = resolveDocxPaths(input, today, careerOpsRoot(), findReportFile);
+    if (!pathsResult.ok) {
+      return new Response(JSON.stringify({ error: pathsResult.error }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    docxPaths = pathsResult.paths;
   }
 
   const coverRequest = kind === "cover" ? parseCoverRequest({ input, brief, root: careerOpsRoot(), findReportFile }) : undefined;
@@ -150,7 +163,7 @@ export async function POST(req: Request) {
     postedAt,
     lang,
     cvTemplate,
-    reportFile: pdfPaths?.reportFile ?? (coverRequest?.ok ? coverRequest.reportFile : undefined),
+    reportFile: pdfPaths?.reportFile ?? docxPaths?.reportFile ?? (coverRequest?.ok ? coverRequest.reportFile : undefined),
     coverBrief: coverRequest?.ok ? coverRequest.brief : undefined,
     profile: profileRef(careerOpsRoot()),
   });
@@ -175,7 +188,7 @@ export async function POST(req: Request) {
   // merge (tracker.mjs delete doesn't yet share a lock with merge-tracker,
   // see run-registry). evaluate's agent no longer writes; the backend persist
   // path below still merges the tracker, so the token stays.
-  const writeToken = kind === "evaluate" || kind === "pdf" ? acquireTrackerWrite() : null;
+  const writeToken = kind === "evaluate" || isCvWorkerKind(kind) ? acquireTrackerWrite() : null;
 
   // stdin must reach EOF or the CLI waits on piped input that never comes: Codex's
   // `exec` blocks reading stdin for additional context, hangs until the kill timer,
@@ -335,6 +348,7 @@ export async function POST(req: Request) {
       // report arrives in a <<report-md>> envelope. The filter keeps every byte
       // for the backend while holding the body out of the run log.
       const cvFilter = kind === "pdf" ? createCvEnvelopeFilter() : null;
+      const docxFilter = kind === "docx" ? createDocxEnvelopeFilter() : null;
       const reportFilter = kind === "evaluate" ? createReportEnvelopeFilter() : null;
       // While the agent emits the 15-25 KB <<cv-html>> envelope, cvFilter swallows
       // every byte, so the response stream goes completely silent for as long as
@@ -345,7 +359,7 @@ export async function POST(req: Request) {
       // the stream never idles during the filtered phase. Unknown event types are
       // ignored by the client's switch, so this is safe for older tabs too.
       const sendAgentText = (text: string) => {
-        const filter = cvFilter ?? reportFilter;
+        const filter = cvFilter ?? docxFilter ?? reportFilter;
         const visible = filter ? filter.push(text) : text;
         if (visible) send({ type: "text", text: visible });
       };
@@ -356,6 +370,11 @@ export async function POST(req: Request) {
       /** Persist the emitted CV; streams the reason and returns false on failure. */
       const saveCv = (paths: PdfPaths, envelope: CvEnvelope) => {
         const written = writeCvHtml({ pdfPaths: paths, html: envelope.html });
+        if (!written.ok) send({ type: "error", msg: written.error.slice(0, 200) });
+        return written.ok;
+      };
+      const saveDocx = (paths: DocxPaths, envelope: DocxEnvelope) => {
+        const written = writeCvMarkdown({ docxPaths: paths, markdown: envelope.markdown });
         if (!written.ok) send({ type: "error", msg: written.error.slice(0, 200) });
         return written.ok;
       };
@@ -488,6 +507,28 @@ export async function POST(req: Request) {
           close();
         }
       };
+      const renderDocx = async (paths: DocxPaths) => {
+        send({ type: "status", label: "Rendering Word file…" });
+        try {
+          const result = await renderAndMarkDocx({
+            spawnFn: spawn,
+            execPath: process.execPath,
+            root: careerOpsRoot(),
+            docxPaths: paths,
+            reportNum: paths.reportNum,
+          });
+          if (result.kind === "render-failed") {
+            send({ type: "error", msg: result.error.slice(0, 200) });
+            return;
+          }
+          sendWarnings(result.warnings);
+          send({ type: "done", tokens: lastTokens, costUsd: lastCostUsd });
+        } catch (e) {
+          send({ type: "error", msg: `Word rendering crashed unexpectedly: ${e instanceof Error ? e.message : String(e)}`.slice(0, 200) });
+        } finally {
+          close();
+        }
+      };
 
       child.on("error", (e) => { send({ type: "error", msg: e.message }); close(); });
       child.on("close", (code) => {
@@ -566,6 +607,31 @@ export async function POST(req: Request) {
               return;
             }
             // saveCv already streamed the specific reason.
+          }
+          return close();
+        }
+
+        if (kind === "docx") {
+          const tail = docxFilter?.flush();
+          if (tail) send({ type: "text", text: tail });
+          const envelope = docxFilter?.result();
+          const outcome = docxRunOutcome({
+            envelope,
+            noOutputMessage: noOutputError(),
+            sawError,
+            cleanExit,
+            hasPaths: docxPaths !== undefined,
+          });
+          if (!outcome.ok) {
+            send({ type: "error", msg: outcome.message });
+          } else if (!docxPaths || envelope?.ok !== true) {
+            send({ type: "error", msg: "Internal error: the docx run passed its gate with no CV to save — please report this." });
+          } else {
+            sendWarnings(envelope.warnings);
+            if (saveDocx(docxPaths, envelope)) {
+              pdfRenderPromise = renderDocx(docxPaths);
+              return;
+            }
           }
           return close();
         }

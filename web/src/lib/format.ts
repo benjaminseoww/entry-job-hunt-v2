@@ -79,7 +79,7 @@ export type ReportMeta = {
 /**
  * Tolerant report parser (per maintainer: adapt the render, don't migrate the
  * old data). Extracts the bold key/value header fields (Date/URL/Archetype/
- * Score/Decision/Legitimacy/PDF) when present and returns the body without
+ * Score/Decision/Legitimacy/CV) when present and returns the body without
  * the header block. Degrades gracefully on legacy reports that lack some fields.
  */
 export function parseReport(md: string): ReportMeta {

@@ -612,6 +612,7 @@ test("evaluate's kill budget gives real headroom, not the old 285s floor (#3124)
   assert.ok(ms > 285_000, `evaluate must exceed the 285s that killed real runs, got ${ms}ms`);
   assert.ok(ms < RUN_MAX_DURATION_S * 1000, "must stay under maxDuration so the SIGTERM is graceful, not a hard cutoff");
   assert.equal(killMsForKind("pdf"), 600_000, "pdf keeps its post-agent render headroom");
+  assert.equal(killMsForKind("docx"), 600_000, "docx keeps the same post-agent render headroom");
   assert.equal(killMsForKind("fix-portal"), 780_000, "kinds with no post-agent phase keep the longer budget");
 });
 

@@ -116,6 +116,9 @@ export default function DocumentsPage() {
                 <Badge tone="info" className="capitalize">
                   {doc.kind === "cv" ? "CV" : doc.kind === "cover" ? "Cover Letter" : "Document"}
                 </Badge>
+                {doc.filename.toLowerCase().endsWith(".docx") && (
+                  <Badge tone="info">Word</Badge>
+                )}
                 {doc.date && (
                   <Badge tone="muted" className="flex items-center gap-1 font-normal">
                     <Calendar className="h-3 w-3" />
@@ -136,7 +139,7 @@ export default function DocumentsPage() {
                 className="w-full justify-between"
                 onClick={() => window.open(`/api/documents?id=${doc.id}`, "_blank")}
               >
-                Open PDF
+                {doc.filename.toLowerCase().endsWith(".docx") ? "Download" : "Open PDF"}
                 <ExternalLink className="h-4 w-4 text-muted" />
               </Button>
             </div>

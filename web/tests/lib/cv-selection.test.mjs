@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { parsePdfManifestRows, pdfIndexEntryForReport, pdfPathForReport, reportNumberFromCell } from "../../src/lib/apply/cv-selection.mjs";
+import { parsePdfManifestRows, pdfIndexCompanionForReport, pdfIndexEntryForReport, pdfPathForReport, reportNumberFromCell } from "../../src/lib/apply/cv-selection.mjs";
 
 test("reportNumberFromCell only accepts markdown report links", () => {
   assert.equal(reportNumberFromCell("[010]"), null);
@@ -103,6 +103,7 @@ test("parsePdfManifestRows extracts structured entries and defaults missing kind
   assert.deepEqual(rows[0], {
     reportId: "010",
     pdf: "output/cv-010.pdf",
+    html: "output/cv-010.html",
     format: "letter",
     date: "2026-08-01",
     kind: "cv",
@@ -110,6 +111,7 @@ test("parsePdfManifestRows extracts structured entries and defaults missing kind
   assert.deepEqual(rows[1], {
     reportId: "011",
     pdf: "output/cover-011.pdf",
+    html: "",
     format: "a4",
     date: "2026-08-02",
     kind: "cover",
@@ -117,4 +119,17 @@ test("parsePdfManifestRows extracts structured entries and defaults missing kind
   assert.equal(rows[2].kind, "cv");
   assert.equal(rows[3].kind, "cv");
   assert.equal(rows[4].kind, "unknown");
+});
+
+test("pdfIndexCompanionForReport returns the html/md companion for a Word row", () => {
+  const index = [
+    "# report\tpdf\thtml\tformat\tdate\tkind",
+    "010\toutput/cv-010.docx\toutput/cv-010.md\tletter\t2026-08-01\tcv",
+  ].join("\n");
+  assert.deepEqual(pdfIndexCompanionForReport(index, 10), {
+    found: true,
+    path: "output/cv-010.docx",
+    html: "output/cv-010.md",
+  });
+  assert.deepEqual(pdfIndexEntryForReport(index, 10), { found: true, path: "output/cv-010.docx" });
 });

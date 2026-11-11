@@ -27,7 +27,7 @@ export function ApplyButton({
   const { jobs } = useJobs();
   const apply = useApply();
 
-  const pdfJobDone = jobs.some((j) => j.kind === "pdf" && j.input === n && j.status === "done");
+  const pdfJobDone = jobs.some((j) => (j.kind === "pdf" || j.kind === "docx") && j.input === n && j.status === "done");
   const hasUrl = !!url && /^https?:\/\//i.test(url);
   const ready = (pdfReady || pdfJobDone) && hasUrl;
 
@@ -36,7 +36,7 @@ export function ApplyButton({
       <button
         type="button"
         disabled
-        title={!hasUrl ? "No application URL on this report" : "Generate the tailored CV (PDF) first to apply"}
+        title={!hasUrl ? "No application URL on this report" : "Generate the tailored CV first to apply"}
         className="inline-flex cursor-not-allowed items-center justify-center gap-1.5 rounded-full border border-border bg-surface/40 px-3.5 py-1 text-xs font-medium text-faint max-sm:min-h-[44px]"
       >
         <Lock className="size-3.5" /> Apply

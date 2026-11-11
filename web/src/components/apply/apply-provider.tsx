@@ -28,6 +28,8 @@ type ApplyCtx = {
   issues: ApplyIssue[];
   driveSteps: DriveStep[];
   error: string;
+  /** Word or PDF — from the file that will actually be attached. */
+  cvFormat: "Word" | "PDF";
   open: (url: string, opts?: { prefill?: boolean; company?: string; n?: string; from?: string }) => Promise<void>;
   prefill: () => Promise<void>;
   setAnswer: (idOrLabel: string, value: string) => void;
@@ -74,6 +76,7 @@ export function ApplyProvider({ children }: { children: React.ReactNode }) {
   const [issues, setIssues] = useState<ApplyIssue[]>([]);
   const [driveSteps, setDriveSteps] = useState<DriveStep[]>([]);
   const [error, setError] = useState("");
+  const [cvFormat, setCvFormat] = useState<"Word" | "PDF">("PDF");
   const sessionId = useRef<string | null>(null);
   const companyRef = useRef<string>("");
   // Mirrors `n` for the async fetch below, same reason as companyRef: the
@@ -183,6 +186,19 @@ export function ApplyProvider({ children }: { children: React.ReactNode }) {
     setN(opts?.n ?? "");
     nRef.current = opts?.n ?? "";
     setFrom(opts?.from ?? "");
+    setCvFormat("PDF");
+    const kindQs = new URLSearchParams();
+    if (opts?.n) kindQs.set("application", opts.n);
+    if (opts?.company) kindQs.set("company", opts.company);
+    if (kindQs.toString()) {
+      void fetch(`/api/cv-kind?${kindQs}`)
+        .then((r) => r.json())
+        .then((d) => {
+          if (generation.current !== gen) return;
+          if (d?.format === "Word" || d?.format === "PDF") setCvFormat(d.format);
+        })
+        .catch(() => {});
+    }
     pendingPrefill.current = false;
     try {
       const r = await fetch("/api/apply/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: u, cliId: cliId() }) });
@@ -415,11 +431,12 @@ export function ApplyProvider({ children }: { children: React.ReactNode }) {
     setIssues([]);
     setDriveSteps([]);
     setError("");
+    setCvFormat("PDF");
   }, []);
 
   const value = useMemo(
-    () => ({ status, url, title, company, n, from, fields, answers, meta, steps, shots, prefillLog, issues, driveSteps, error, open, prefill, setAnswer, fill, agentFill, reset }),
-    [status, url, title, company, n, from, fields, answers, meta, steps, shots, prefillLog, issues, driveSteps, error, open, prefill, setAnswer, fill, agentFill, reset],
+    () => ({ status, url, title, company, n, from, fields, answers, meta, steps, shots, prefillLog, issues, driveSteps, error, cvFormat, open, prefill, setAnswer, fill, agentFill, reset }),
+    [status, url, title, company, n, from, fields, answers, meta, steps, shots, prefillLog, issues, driveSteps, error, cvFormat, open, prefill, setAnswer, fill, agentFill, reset],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

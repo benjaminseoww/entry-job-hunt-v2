@@ -439,7 +439,7 @@ export function newCompletedReportNum(beforeEntries, afterEntries) {
 // a report" (#3124).
 export const RUN_MAX_DURATION_S = 800;
 export function killMsForKind(kind) {
-  if (kind === "pdf") return 600_000;
+  if (kind === "pdf" || kind === "docx") return 600_000;
   if (kind === "evaluate") return 740_000;
   return 780_000;
 }

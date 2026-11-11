@@ -37,7 +37,8 @@ function context() {
 test("generatePdf names the company for a zero-padded application number", () => {
   const { ctx, started } = context();
   dispatch("generatePdf", { n: "007" }, ctx);
-  assert.equal(started[0].title, "CV PDF · Acme");
+  assert.equal(started[0].title, "CV · Acme");
+  assert.equal(started[0].kind, "pdf");
 });
 
 test("setStatus names the company and role for a zero-padded application number", async () => {
@@ -53,9 +54,24 @@ test("an unknown or non-numeric number falls back to the raw label", () => {
   dispatch("generatePdf", { n: "99" }, ctx);
   dispatch("generatePdf", { n: "abc" }, ctx);
   dispatch("generatePdf", { n: "7abc" }, ctx);
-  assert.deepEqual(started.map((s) => s.title), ["CV PDF · #99", "CV PDF · #abc", "CV PDF · #7abc"]);
+  assert.deepEqual(started.map((s) => s.title), ["CV · #99", "CV · #abc", "CV · #7abc"]);
 });
 
+
+test("generatePdf starts a Word worker when cvOutputFormat is docx", () => {
+  const { ctx, started } = context();
+  ctx.cvOutputFormat = "docx";
+  dispatch("generatePdf", { n: "007" }, ctx);
+  assert.equal(started[0].kind, "docx");
+  assert.equal(started[0].subtitle, "Word");
+});
+
+test("generateDocx always starts a Word worker", () => {
+  const { ctx, started } = context();
+  dispatch("generateDocx", { n: "007" }, ctx);
+  assert.equal(started[0].kind, "docx");
+  assert.equal(started[0].title, "CV · Acme");
+});
 
 test("setStatus keeps its approved target and waits for the write result", async () => {
   const { ctx } = context();
