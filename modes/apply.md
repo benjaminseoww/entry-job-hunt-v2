@@ -214,23 +214,23 @@ tailoring that made the application relevant.
    want the other paths beside it.
 3. No bundle, so a flat `output/cv-{candidate}[-{report}]-{company}-{YYYY-MM-DD}.html`.
    `data/pdf-index.tsv` can shorten the search here, but it is a hint and not an
-   answer. Its columns are `report \t pdf \t html \t format \t date` and there is
-   no document-kind column: `generate-pdf.mjs` drops every earlier row for a report
-   number when it writes a new one, and `generate-cover-letter.mjs` renders through
-   that same function with the same report, so the row for a report can name the
-   cover letter rather than the CV. Read the path before trusting it, and remember a
-   `cover-…` file is never a CV. `node find.mjs {report#}` surfaces the same manifest
-   from the tracker side and returns only the PDF path, so it cannot tell you which
-   kind of document that is either. A CV built through the `latex` / `latex-tex`
-   path is not in the manifest at all, since only `generate-pdf.mjs` writes it.
+   answer. Its columns are `report \t pdf \t html \t format \t date \t kind`. The
+   `kind` column is `cv` or `cover`, so a cover letter for the same report no
+   longer evicts the CV row. The `pdf` column is the artifact to attach
+   (`.pdf` or `.docx`); the `html` column is the readable CV (HTML or tailored
+   `.md`). Read the path before trusting it, and remember a `cover-…` file or a
+   `kind=cover` row is never a CV. `node find.mjs {report#}` surfaces the same
+   manifest from the tracker side and returns the indexed artifact path. A CV
+   built through the `latex` / `latex-tex` path is not in the manifest at all,
+   since only `generate-pdf.mjs` and `generate-docx.mjs` write it.
 4. Manifest silent or pointing at the wrong kind of document? Fall back to a
    filename match in `output/`: a `cv-…` artifact for this application's company,
-   preferring `.html` or `.tex` (readable) over `.pdf`. Match the company slug at a
-   token boundary — `cv-…-meta-…` must not resolve Metabase's CV. These filenames
-   carry the company and a date but not the role, so if `output/` holds more than
-   one CV for that company, do not take the newest: ask which one was built for this
-   report. Two roles at one employer is exactly the case where the newest file is
-   the wrong document.
+   preferring `.html`, `.md` or `.tex` (readable) over `.pdf` / `.docx`. Match the
+   company slug at a token boundary — `cv-…-meta-…` must not resolve Metabase's CV.
+   These filenames carry the company and a date but not the role, so if `output/`
+   holds more than one CV for that company, do not take the newest: ask which one
+   was built for this report. Two roles at one employer is exactly the case where
+   the newest file is the wrong document.
 5. Nothing found, or the file a path names is missing → there is no tailored CV for
    this application. Say so explicitly, then fall back to `cv.md`.
 

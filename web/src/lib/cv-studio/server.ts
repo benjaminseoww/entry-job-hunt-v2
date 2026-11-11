@@ -14,9 +14,11 @@ import { buildStudioDoc, emptyEdits, parseEdits, resolveStudio, type StudioDoc, 
 
 const EDITED_SUFFIX = "-edited";
 
+export const WORD_CV_MESSAGE = "CV Studio does not edit Word CVs yet";
+
 export type StudioLoad =
   | { ok: true; reportNum: string; company: string; file: string; tree: BlockTree; doc: StudioDoc; edits: StudioEdits; stale: boolean; hasBase: boolean }
-  | { ok: false; reason: "no-report" | "no-tailored-cv" | "unreadable-layout" };
+  | { ok: false; reason: "no-report" | "no-tailored-cv" | "unreadable-layout" | "word-cv" };
 
 type KeywordMatch = { extractKeywords: (report: string) => string[]; keywordCount: (keyword: string, text: string) => number };
 
@@ -79,6 +81,10 @@ export async function loadStudio(n: string): Promise<StudioLoad> {
   if (!/^\d+$/.test(n)) return { ok: false, reason: "no-report" };
   const id = reportIdentity(n);
   if (!id) return { ok: false, reason: "no-report" };
+  const indexed = await pdfPathStatusForReport(n);
+  if (indexed.status === "found" && /\.docx$/i.test(indexed.path)) {
+    return { ok: false, reason: "word-cv" };
+  }
   const file = await findTailoredHtml(n, id.slug);
   if (!file) return { ok: false, reason: "no-tailored-cv" };
 

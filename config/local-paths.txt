@@ -4,4 +4,6 @@ generate-docx.mjs
 lib/docx-resume.mjs
 lib/docx-text.mjs
 lib/docx-zip.mjs
+lib/pdf-index.mjs
 modes/docx.md
+scripts/docx-backfill.mjs

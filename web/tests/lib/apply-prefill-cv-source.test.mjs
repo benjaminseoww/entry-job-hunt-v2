@@ -217,6 +217,28 @@ test("applyCvSource never names a manifest html column pointing outside the work
   );
 });
 
+test("applyCvSource returns the tailored .md for a Word index row", async () => {
+  const root = mkdtempSync(join(tmpdir(), "prefill-docx-"));
+  mkdirSync(join(root, "output"), { recursive: true });
+  mkdirSync(join(root, "data"), { recursive: true });
+  const docx = "output/cv-acme.docx";
+  const md = "output/cv-acme.md";
+  writeFileSync(join(root, docx), "PK-docx");
+  writeFileSync(join(root, md), "# tailored\n");
+  writeFileSync(
+    join(root, "data", "pdf-index.tsv"),
+    MANIFEST_HEADER + `12\t${docx}\t${md}\tletter\t2026-01-10\tcv\n`,
+  );
+  const prev = process.env.CAREER_OPS_ROOT;
+  process.env.CAREER_OPS_ROOT = root;
+  try {
+    assert.equal(applyCvSource(root, docx), md);
+  } finally {
+    if (prev === undefined) delete process.env.CAREER_OPS_ROOT;
+    else process.env.CAREER_OPS_ROOT = prev;
+  }
+});
+
 test("applyCvSource refuses a path outside the workspace", async () => {
   await withWorkspace(async (root) => {
     assert.equal(applyCvSource(root, "../../etc/passwd"), null);
