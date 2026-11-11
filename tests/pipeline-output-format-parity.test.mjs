@@ -33,10 +33,10 @@ const declaredLine = profileExample
   .find((line) => /^\s*output_format\s*:/.test(line)) ?? '';
 const declaredFormats = [...new Set([...declaredLine.matchAll(/"([a-z]+)"/g)].map((m) => m[1]))];
 
-if (declaredFormats.length >= 3 && ['html', 'latex', 'text'].every((f) => declaredFormats.includes(f))) {
+if (declaredFormats.length >= 4 && ['html', 'latex', 'text', 'docx'].every((f) => declaredFormats.includes(f))) {
   pass(`config/profile.example.yml declares cv.output_format values: ${declaredFormats.join(', ')}`);
 } else {
-  fail(`config/profile.example.yml no longer declares html/latex/text for cv.output_format (found: ${declaredFormats.join(', ') || 'none'})`);
+  fail(`config/profile.example.yml no longer declares html/latex/text/docx for cv.output_format (found: ${declaredFormats.join(', ') || 'none'})`);
 }
 
 // Each non-default value routes to its own mode file; anything else is the

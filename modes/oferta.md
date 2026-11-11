@@ -8,7 +8,7 @@ When the candidate pastes a job (text or URL), ALWAYS deliver the 7 blocks (A-F 
 
 ## Liveness gate (URL inputs)
 
-When the candidate pastes a **URL** (not JD text), confirm the posting is still live before doing any evaluation. A dead link must never reach Block A — a 404/expired page wastes a full A-H evaluation, report, and PDF on phantom content.
+When the candidate pastes a **URL** (not JD text), confirm the posting is still live before doing any evaluation. A dead link must never reach Block A — a 404/expired page wastes a full A-H evaluation, report, and tailored CV on phantom content.
 
 **LinkedIn URLs:** first apply AGENTS.md → **LinkedIn JD loading guard (#4121)**, including on direct `oferta` entry. Reuse prior content and the one-attempt budget across mode handoffs; it overrides the generic CLI/browser fallback below. A missing JD or stuck skeleton stays unconfirmed even with a title and Apply button. Stop before Block A and all artifact/tracker writes until real JD text is available; never navigate again just to resolve this gate.
 
@@ -777,7 +777,7 @@ After saving the report, run the coverage check and paste its `## Keyword Covera
 node keyword-match.mjs reports/{###}-{company-slug}-{YYYY-MM-DD}.md
 ```
 
-By default this scans the base `cv.md` — read it as a **pre-tailoring gap list** (which JD keywords to weave in while tailoring), not a verdict on the document you will send; the output labels what it scanned. To verify the final tailored CV, pass `--cv` (the `pdf` mode does this against the generated HTML).
+By default this scans the base `cv.md` — read it as a **pre-tailoring gap list** (which JD keywords to weave in while tailoring), not a verdict on the document you will send; the output labels what it scanned. To verify the final tailored CV, pass `--cv` (the `pdf` mode does this against the generated HTML; the `docx` mode does this against the tailored markdown).
 
 **Diagnostic only:** it flags missing/thin keywords so the user can decide what to reinforce. Never fabricate — add a keyword only if it reflects the user's real experience (see `modes/_shared.md`).
 
@@ -795,7 +795,7 @@ The TSV carries:
 - Role
 - Score: copy the already-decided 1–5 Global Score from the report header and Machine Summary `score`. Apply the user's scoring rules from `modes/_profile.md` and `modes/_custom.md` when deciding that score, not again while writing the tracker. A–H are report sections, not scores to average.
 - Status: `Evaluated`
-- PDF: ❌ (or ✅ if auto-pipeline generated PDF)
+- PDF: ❌ (or ✅ if auto-pipeline generated the tailored CV)
 - Report: root-relative link `[001](reports/001-company-2026-01-01.md)` (when merged via `merge-tracker.mjs` it is normalized to be relative to the tracker's own dir, e.g. `../reports/...`; see #760)
 - Notes — when the pipeline entry carries a `| posted: {YYYY-MM-DD}` segment (written by the scanner from the provider's `offer.postedAt`, see `modes/pipeline.md`), carry it through as its own trailing segment: `…; posted: 2026-08-07`. This is the only path by which the posting date reaches the tracker, and the dashboard's POSTED column — requisition age, "is this still plausibly being worked?" — reads it from the note. Copy it verbatim; when the entry has no segment, write nothing rather than inferring a date, since the column renders an absent date as `—` and a guessed one would report a months-old req as fresh.
 

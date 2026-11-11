@@ -17,7 +17,7 @@ Processen bieden URL's aan die zijn verzameld in `data/pipeline.md`. De kandidaa
 5. **Aan het einde** geeft u een samenvattende tabel weer:
 
 ```text
-| # | Bedrijf | Functie | Score | PDF | Aanbevolen actie |
+| # | Bedrijf | Functie | Score | CV | Aanbevolen actie |
 ```
 
 ## Pipeline.md-indeling

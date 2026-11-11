@@ -11,10 +11,10 @@ Conductor (headed browser mode)
   │  Reads DOM directly — the user sees everything in real time
   │
   ├─ Job 1: reads JD from DOM + URL
-  │    └─► headless worker → report .md + PDF + tracker-line
+  │    └─► headless worker → report .md + tailored CV + tracker-line
   │
   ├─ Job 2: click next, read JD + URL
-  │    └─► headless worker → report .md + PDF + tracker-line
+  │    └─► headless worker → report .md + tailored CV + tracker-line
   │
   └─ End: merge tracker-additions → applications.md + summary
 ```
@@ -143,7 +143,7 @@ Each worker receives `batch-prompt.md` as a system prompt. It is self-contained.
 
 The worker produces:
 1. `.md` report in `reports/`
-2. PDF in `output/`
+2. Tailored CV in `output/`
 3. Tracker line in `batch/tracker-additions/{id}.tsv`
 4. Result JSON via stdout
 
@@ -157,4 +157,4 @@ The worker produces:
 | Worker crashes | Conductor marks `failed`, continues. Retry with `--retry-failed` |
 | Claude session/usage limit | Runner marks the current offer `paused_rate_limit`, stops scheduling new offers, preserves retries. Resume with `--resume-paused` after reset. |
 | Conductor crashes | Re-run → reads state → skip completed jobs |
-| PDF fails | .md report is saved. PDF remains pending |
+| CV fails | .md report is saved. CV remains pending |

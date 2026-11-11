@@ -33,7 +33,7 @@ Per-URL loop の前に、zero-token liveness checker で pending URLs をまと�
 4. **At the end**, summary table を表示：
 
 ```markdown
-| # | Company | Role | Score | PDF | Recommended action |
+| # | Company | Role | Score | CV | Recommended action |
 ```
 
 ## Format of pipeline.md

@@ -15,7 +15,7 @@
 4. **마지막에** 요약 표를 표시합니다.
 
 ```markdown
-| # | Company | Role | Score | PDF | Recommended action |
+| # | Company | Role | Score | CV | Recommended action |
 ```
 
 ## pipeline.md format
