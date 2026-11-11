@@ -1862,6 +1862,12 @@ function countShapedSpans(text, { format } = {}) {
   const out = [];
   for (const m of clean.matchAll(GENERIC_COUNT_RE)) {
     if (YEAR_LIKE.test(m[1].replace(/[,.]/g, ''))) continue;
+    // A numbered list marker is not a count: "1) HubSpot, 2) Salesforce" is
+    // two tools, not two magnitudes. Same shape as GENERIC_COUNT_RE (digits,
+    // then a word) and none of the meaning — without this filter a sourced
+    // tool list warns as unread English counts.
+    const afterNumber = clean.slice(m.index + m[1].length);
+    if (/^\s*\)/.test(afterNumber)) continue;
     // The digits are what a simple pattern would have claimed, so test their
     // position, not the span's — the span starts at the number either way, but
     // a currency match starts one character earlier, at the symbol.
