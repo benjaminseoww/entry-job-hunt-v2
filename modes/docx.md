@@ -24,7 +24,7 @@ are a later step. Leave the tracker's PDF/Word cell alone.
 
 Optional pass:
 - **`--hm-audit`:** `/career-ops docx --hm-audit` adds the hiring-manager audit at
-  Step 20 — an adversarial read of the tailored CV by a separate, research-grounded
+  Step 19 — an adversarial read of the tailored CV by a separate, research-grounded
   reviewer before it becomes a Word file (`modes/pdf/hm-audit.md`). Off by default.
 
 ## Pipeline
@@ -85,26 +85,36 @@ They must appear verbatim.
 18. Run the fact gate against the markdown: `node verify-cv-facts.mjs output/cv-{candidate}-{report}-{company}-{YYYY-MM-DD}.md`
     - Same hard gate `pdf` mode runs on the HTML and `text` mode runs on its markdown.
     - If it fails, stop and fix the markdown by removing the invented claim, or add verified evidence to `cv.md`, `article-digest.md`, or `config/cv-facts.json`. Do not render a `.docx` until this passes.
-20. **Hiring-manager audit — off by default, opt-in only.** Run `modes/pdf/hm-audit.md` if and only if one of these is true; otherwise skip straight to Step 19 without prompting.
+19. **Hiring-manager audit — off by default, opt-in only.** Run `modes/pdf/hm-audit.md` if and only if one of these is true; otherwise skip straight to Step 20 without prompting.
     - The invocation carried `--hm-audit` (`/career-ops docx --hm-audit`, or the same flag on a natural-language request).
     - `modes/_custom.md` turns it on as a house rule.
 
     The fact gate proves nothing was invented; it cannot tell you whether these are the *right* bullets for the role. The audit researches the likely reviewer, dispatches a separate subagent role-playing them, and returns a bullet-by-bullet keep/cut/rewrite verdict plus a blunt "would I advance this to a screen?" call.
 
     The audit recommends; the user decides. If they take any rewrite, return to Step 17, rebuild the markdown, and re-run the markdown fact gate before rendering. Do not re-run the audit against the rebuilt CV.
-19. Render the Word file from the **gated markdown**, not from a rewritten draft:
+20. Render the Word file from the **gated markdown**, not from a rewritten draft:
 
     `node generate-docx.mjs output/cv-{candidate}-{report}-{company}-{YYYY-MM-DD}.md output/cv-{candidate}-{report}-{company}-{YYYY-MM-DD}.docx`
 
     The output path is `output/cv-{candidate}-{report}-{company}-{YYYY-MM-DD}.docx`.
     Omit `-{report}` only when no report number exists at all.
     `generate-docx.mjs` reads the document back and compares its words with the
-    markdown; a mismatch writes nothing and exits 1. If it fails, stop.
+    markdown; a mismatch writes nothing and exits 1. It also runs the fact gate
+    unless `--skip-fact-check` is passed. If it fails, stop.
 21. Run the fact gate against the generated Word file: `node verify-cv-facts.mjs output/cv-{candidate}-{report}-{company}-{YYYY-MM-DD}.docx`
-    - The gate unzips the `.docx` and checks the visible text of the body plus any `word/header*.xml` / `word/footer*.xml` parts and footnotes/endnotes named by `word/_rels/document.xml.rels`, as plain text. This is the hard gate on the file the user will send. A pass on the markdown is not a substitute.
+    - The gate unzips the `.docx` and checks the visible text of the body plus any `word/header*.xml` / `word/footer*.xml` / `word/footnotes*.xml` / `word/endnotes*.xml` parts (from rels and by filename), as plain text. This is the hard gate on the file the user will send. A pass on the markdown is not a substitute.
     - If it fails, stop and fix the markdown (step 17), then re-run steps 18–21. Do not hand-edit the `.docx`.
 22. Verify ATS keyword coverage of the **tailored** CV against the role's evaluation report (when one exists): `node keyword-match.mjs "reports/{###}-{company-slug}-{YYYY-MM-DD}.md" --cv "output/cv-{candidate}-{report}-{company}-{YYYY-MM-DD}.md"`. Pass the report's full filename (e.g. `reports/008-acme-2026-09-28.md`), not the bare NNN, and keep both paths quoted. Surface any missing/thin keywords to the user (reformulate from real experience, never fabricate). If the report has no keyword section, the command prints a `⚠️` line on stderr and scores the skills it finds in the report's archived JD instead. That is a defect in the report, not a pass: tell the user, and add the keyword section to the report. If it exits 1, coverage did not run. Say so in the report step rather than leaving the number out.
-23. Report: `.docx` path, `.md` path, keyword coverage % and whether its keywords came from the report or the archived JD (when Step 22 ran), and any skill gaps from Step 4 still unaddressed.
+23. Report to the user:
+
+```
+output/cv-{candidate}-{report}-{company}-{YYYY-MM-DD}.docx
+output/cv-{candidate}-{report}-{company}-{YYYY-MM-DD}.md
+- {N} sections rendered
+- {K}/{Total} JD keywords matched ({pct}% coverage)
+- Unmatched (consider addressing manually): {top 3 unmatched}
+- Not yet in the tracker, web, or dashboard
+```
 
     The `.docx` is **not yet visible** in the tracker, the web app, or the dashboard. Indexing and the tracker cell are a later step. Do not tell the user the file is attached to the application row.
 
@@ -200,15 +210,5 @@ Do not auto-generate the cover letter PDF without going through the interactive 
 **Leave the tracker's PDF/Word column alone.** Indexing the `.docx` and writing
 the tracker cell is a later step. Marking the column `✅` here would point
 consumers at a file they cannot yet resolve through `data/pdf-index.tsv`. The
-file is not yet visible in the tracker, web, or dashboard.
-
-Report to the user:
-
-```
-output/cv-{candidate}-{report}-{company}-{YYYY-MM-DD}.docx
-output/cv-{candidate}-{report}-{company}-{YYYY-MM-DD}.md
-- {N} sections rendered
-- {K}/{Total} JD keywords matched ({pct}% coverage)
-- Unmatched (consider addressing manually): {top 3 unmatched}
-- Not yet in the tracker, web, or dashboard
-```
+file is not yet visible in the tracker, web, or dashboard. The report text is
+in Step 23.

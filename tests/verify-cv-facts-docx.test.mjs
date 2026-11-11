@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateDocx } from '../generate-docx.mjs';
-import { extractDocxText, unescapeXml } from '../lib/docx-text.mjs';
+import { extractDocxText, unescapeXml, MAX_DOCX_TEXT_BYTES, MAX_HEADER_FOOTER_PARTS } from '../lib/docx-text.mjs';
 import { readZip, readZipEntries, writeZip, MAX_ZIP_ENTRY_BYTES } from '../lib/docx-zip.mjs';
 import { readGeneratedText, verifyFacts } from '../verify-cv-facts.mjs';
 
@@ -79,7 +79,7 @@ function writeDocx(dir, name, bullet) {
   const md = join(dir, `${name}.md`);
   const docx = join(dir, `${name}.docx`);
   writeFileSync(md, resume(bullet));
-  const result = generateDocx({ input: md, output: docx });
+  const result = generateDocx({ input: md, output: docx, skipFactCheck: true });
   assert.equal(result.ok, true, result.error ?? 'generateDocx failed');
   return docx;
 }
@@ -209,6 +209,10 @@ test('plain-text mode keeps angle-bracket claims and does not double-decode enti
     assert.equal(angled.verdict, 'block', 'angle-bracket claim must stay visible');
     assert.ok(angled.invented.some((claim) => /40 engineers/.test(claim)), angled.invented.join(', '));
 
+    const closed = verifyFacts('Led <team of 40> engineers.', opts);
+    assert.equal(closed.verdict, 'block', '40> must still read as 40 engineers');
+    assert.ok(closed.invented.some((claim) => /40 engineers/.test(claim)), closed.invented.join(', '));
+
     const entity = verifyFacts('Led a team of &#52;0 engineers.', opts);
     assert.equal(entity.invented.some((claim) => /40 engineers/.test(claim)), false, entity.invented.join(', '));
   });
@@ -234,6 +238,25 @@ test('a claim after a nested text-box paragraph is still gated', () => {
     const text = extractDocxText(readFileSync(path));
     assert.match(text, /IntroBox text/);
     assert.match(text, /Led a team of 40 engineers/);
+    const result = verifyFacts(text, {
+      sourcePaths: [join(dir, 'cv.md')],
+      configPath: join(dir, 'no-such-cv-facts.json'),
+      format: 'text',
+    });
+    assert.equal(result.verdict, 'block');
+    assert.ok(result.invented.some((claim) => /40 engineers/.test(claim)));
+  });
+});
+
+test('an inflated metric in orphan footnotes is blocked even without a rels entry', () => {
+  withDir('career-ops-facts-docx-orphan-notes-', (dir) => {
+    writeFileSync(join(dir, 'cv.md'), resume('Led a team of 4 engineers.'));
+    const path = writePacked(dir, 'orphan-notes.docx', {
+      'word/document.xml': wmlDocument('w', paragraph('w', t('w', 'IntroBox text'))),
+      'word/footnotes.xml': `<w:footnotes xmlns:w="${WML}">${paragraph('w', t('w', 'Led a team of 40 engineers.'))}</w:footnotes>`,
+    });
+    const text = extractDocxText(readFileSync(path));
+    assert.match(text, /40 engineers/);
     const result = verifyFacts(text, {
       sourcePaths: [join(dir, 'cv.md')],
       configPath: join(dir, 'no-such-cv-facts.json'),
@@ -393,6 +416,58 @@ test('corrupt offsets surface as Corrupt .docx, not a raw RangeError', () => {
     assert.match(`${r.stdout}${r.stderr}`, /Corrupt \.docx:/);
     assert.doesNotMatch(`${r.stdout}${r.stderr}`, /RangeError/);
   });
+});
+
+test('a zip renamed away from a Word extension is refused', () => {
+  withDir('career-ops-facts-docx-pk-', (dir) => {
+    const packed = packDocx({
+      'word/document.xml': wmlDocument('w', paragraph('w', t('w', 'Led a team of 40 engineers.'))),
+    });
+    const rtf = join(dir, 'cv.rtf');
+    writeFileSync(rtf, packed);
+    assert.throws(() => readGeneratedText(rtf), /Word extension/);
+    const r = runCli(rtf, { dataRoot: dir });
+    assert.equal(r.status, 1);
+    assert.match(`${r.stdout}${r.stderr}`, /Word extension/);
+  });
+});
+
+test('a NUL-bearing file without a Word extension is refused', () => {
+  withDir('career-ops-facts-docx-nul-', (dir) => {
+    const file = join(dir, 'cv.md');
+    writeFileSync(file, Buffer.from('Led a team of 40\0 engineers.'));
+    assert.throws(() => readGeneratedText(file), /binary file/);
+  });
+});
+
+test('too many header parts fail with a clear error', () => {
+  const parts = { 'word/document.xml': wmlDocument('w', paragraph('w', t('w', 'Hello'))) };
+  for (let i = 1; i <= MAX_HEADER_FOOTER_PARTS + 1; i++) {
+    parts[`word/header${i}.xml`] = `<w:hdr xmlns:w="${WML}">${paragraph('w', t('w', 'h'))}</w:hdr>`;
+  }
+  const zip = packDocx(parts);
+  assert.throws(() => extractDocxText(zip), /too many header\/footer parts/);
+});
+
+test('inflated Word parts across the document hit a total budget', () => {
+  const pad = 'x'.repeat(Math.floor(MAX_DOCX_TEXT_BYTES / 2) + 1024);
+  const zip = packDocx({
+    'word/document.xml': wmlDocument('w', paragraph('w', t('w', 'Hello'))),
+    'word/header1.xml': `<w:hdr xmlns:w="${WML}">${paragraph('w', t('w', pad))}</w:hdr>`,
+    'word/header2.xml': `<w:hdr xmlns:w="${WML}">${paragraph('w', t('w', pad))}</w:hdr>`,
+  });
+  assert.throws(() => extractDocxText(zip), /exceed/);
+});
+
+test('a header with many paragraphs does not overflow the stack', () => {
+  const paras = paragraph('w', t('w', 'x')).repeat(40_000);
+  const zip = packDocx({
+    'word/document.xml': wmlDocument('w', paragraph('w', t('w', 'Hello'))),
+    'word/header1.xml': `<w:hdr xmlns:w="${WML}">${paras}</w:hdr>`,
+  });
+  const text = extractDocxText(zip);
+  assert.match(text, /Hello/);
+  assert.match(text, /x/);
 });
 
 test('an unclosed paragraph tag is scanned in linear time', () => {
