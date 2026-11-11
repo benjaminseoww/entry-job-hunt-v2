@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { readJsonObject } from "@/lib/json-body";
-import { keywordsInText, loadStudio, renderEditedPdf, saveEdits } from "@/lib/cv-studio/server";
+import { keywordsInText, loadStudio, renderEditedPdf, saveEdits, WORD_CV_MESSAGE } from "@/lib/cv-studio/server";
 import { acquireTrackerWrite, releaseTrackerWrite } from "@/lib/core/run-registry";
 import { parseEdits } from "@/lib/cv-studio/studio.mjs";
 
@@ -9,13 +9,17 @@ export const dynamic = "force-dynamic";
 
 type RouteContext = { params: Promise<{ n: string }> };
 
-const NOT_FOUND = { "no-report": 404, "no-tailored-cv": 404, "unreadable-layout": 422 } as const;
+const NOT_FOUND = { "no-report": 404, "no-tailored-cv": 404, "unreadable-layout": 422, "word-cv": 422 } as const;
+
+function studioError(reason: keyof typeof NOT_FOUND) {
+  return NextResponse.json({ error: reason === "word-cv" ? WORD_CV_MESSAGE : reason }, { status: NOT_FOUND[reason] });
+}
 
 const saving = new Set<string>();
 
 export async function GET(_req: Request, { params }: RouteContext) {
   const load = await loadStudio((await params).n);
-  if (!load.ok) return NextResponse.json({ error: load.reason }, { status: NOT_FOUND[load.reason] });
+  if (!load.ok) return studioError(load.reason);
   return NextResponse.json(load);
 }
 
@@ -25,7 +29,7 @@ export async function PUT(req: Request, { params }: RouteContext) {
   const body = await readJsonObject<{ edits?: unknown }>(req);
   if (!body) return NextResponse.json({ error: "bad json" }, { status: 400 });
   const load = await loadStudio((await params).n);
-  if (!load.ok) return NextResponse.json({ error: load.reason }, { status: NOT_FOUND[load.reason] });
+  if (!load.ok) return studioError(load.reason);
   const parsed = parseEdits(body.edits, load.doc.sourceHash);
   if (!parsed) return NextResponse.json({ error: "edits required" }, { status: 400 });
   if (parsed.stale) return NextResponse.json({ error: "stale" }, { status: 409 });
@@ -44,7 +48,7 @@ export async function POST(req: Request, { params }: RouteContext) {
   }
   if (body.op !== "save") return NextResponse.json({ error: "unknown op" }, { status: 400 });
   const load = await loadStudio(n);
-  if (!load.ok) return NextResponse.json({ error: load.reason }, { status: NOT_FOUND[load.reason] });
+  if (!load.ok) return studioError(load.reason);
   const parsed = parseEdits(body.edits, load.doc.sourceHash);
   if (!parsed) return NextResponse.json({ error: "edits required" }, { status: 400 });
   if (parsed.stale) return NextResponse.json({ error: "stale" }, { status: 409 });

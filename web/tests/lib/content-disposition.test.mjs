@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { inlineDisposition } from "../../src/lib/content-disposition.mjs";
+import { attachmentDisposition, inlineDisposition } from "../../src/lib/content-disposition.mjs";
 
 const NAMES = [
   "cv-jane-doe-007-acme-2026-07-01.pdf",
@@ -29,4 +29,11 @@ test("an ASCII name keeps its plain filename", () => {
 
 test("a non-ASCII name gets a quoted ASCII fallback", () => {
   assert.match(inlineDisposition("cv-łukasz.pdf"), /^inline; filename="cv-\?ukasz\.pdf"; /);
+});
+
+test("attachmentDisposition downloads a Word file", () => {
+  const value = attachmentDisposition("cv-jane.docx");
+  assert.match(value, /^attachment; filename="cv-jane\.docx"; /);
+  const res = new Response("x", { headers: { "Content-Disposition": value } });
+  assert.match(res.headers.get("content-disposition"), /^attachment;/);
 });

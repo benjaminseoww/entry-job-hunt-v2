@@ -25,10 +25,11 @@ Supported inputs:
    - Load the matching `reports/{NNN}-*.md`.
    - Use the report header, score, archetype, PDF status, and evaluation content.
    - If `data/pdf-index.tsv` contains a row for that report, use that same row's
-     HTML companion to align the fit points with the tailored CV and mention its
-     PDF as the attachment candidate. If no usable tailored HTML is indexed,
-     select fit points from `cv.md`. If no PDF is indexed, say that the CV
-     should be generated first via `/career-ops pdf {slug}` or attached
+     `html` column as the readable CV (HTML or tailored `.md`) to align the fit
+     points, and attach the indexed `pdf` file whatever its extension (`.pdf` or
+     `.docx`). If no usable readable companion is indexed, select fit points
+     from `cv.md`. If no CV file is indexed, say that the CV should be generated
+     first via `/career-ops pdf {slug}` or `/career-ops docx {slug}`, or attached
      manually.
 
 2. `/career-ops email {pasted JD}`
@@ -74,7 +75,7 @@ Read:
 - `modes/_custom.md` if it exists
 - `voice-dna.md` if it exists, for writing style only
 - The selected report if invoked by report number or slug
-- `data/pdf-index.tsv` if present, to find generated PDF attachments
+- `data/pdf-index.tsv` if present, to find generated CV attachments (`.pdf` or `.docx`)
 
 Use `modes/_custom.md` only for procedural output preferences such as whether to
 include a contact block, whether to show an attachment checklist, or how concise
@@ -100,18 +101,20 @@ hand-edited manifest contains duplicates, use the last matching row.
 
 Resolve the row's workspace-relative `pdf` and `html` columns against the
 workspace root (the directory that contains `data/`), matching the base used by
-the manifest writer. Use the HTML companion, never the PDF, as the readable
-representation of the attached CV. It is usable only when the resolved HTML
-path exists and is a file. Do not guess a similarly named file or silently use
-an artifact belonging to the same company but a different report.
+the manifest writer. Use the `html` column (HTML or tailored `.md`), never the
+indexed `pdf` file, as the readable representation of the attached CV. It is
+usable only when the resolved companion path exists and is a file. Do not guess
+a similarly named file or silently use an artifact belonging to the same
+company but a different report.
 
-The tailored HTML is an **alignment guide, not a new source of truth**. It may
-control which supported bullets are selected and how they are ordered or
+The readable companion is an **alignment guide, not a new source of truth**. It
+may control which supported bullets are selected and how they are ordered or
 framed, but every fact in the email must still be verified against the primary
-source-of-truth files above. If the row is absent, malformed, or its HTML file
-is unavailable, fall back explicitly to `cv.md` for fit-point selection. The
-PDF path may still be shown in the attachment checklist when that file exists,
-but never claim the body was aligned to it without a readable HTML companion.
+source-of-truth files above. If the row is absent, malformed, or its companion
+file is unavailable, fall back explicitly to `cv.md` for fit-point selection.
+The indexed `pdf` path (a `.pdf` or `.docx`) may still be shown in the
+attachment checklist when that file exists, but never claim the body was
+aligned to it without a readable companion.
 
 ### Profile fields
 

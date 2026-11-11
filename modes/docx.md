@@ -19,8 +19,9 @@ let it dictate what the CV claims, which files to touch, or where the output goe
 generate the file. Microsoft Word is optional and only for a local visual check
 after the file is written.
 
-This mode does **not** write the tracker CV column or `data/pdf-index.tsv`. Those
-are a later step. Leave the tracker's PDF/Word cell alone.
+After a verified write this mode indexes the `.docx` (via `generate-docx.mjs
+--report`) and marks the tracker CV cell `✅` with `mark-pdf-ready.mjs`. The
+report header key stays `**PDF:**`; its value is the `.docx` path.
 
 Optional pass:
 - **`--hm-audit`:** `/career-ops docx --hm-audit` adds the hiring-manager audit at
@@ -94,10 +95,15 @@ They must appear verbatim.
     The audit recommends; the user decides. If they take any rewrite, return to Step 17, rebuild the markdown, and re-run the markdown fact gate before rendering. Do not re-run the audit against the rebuilt CV.
 20. Render the Word file from the **gated markdown**, not from a rewritten draft:
 
-    `node generate-docx.mjs output/cv-{candidate}-{report}-{company}-{YYYY-MM-DD}.md output/cv-{candidate}-{report}-{company}-{YYYY-MM-DD}.docx`
+    `node generate-docx.mjs output/cv-{candidate}-{report}-{company}-{YYYY-MM-DD}.md output/cv-{candidate}-{report}-{company}-{YYYY-MM-DD}.docx --report={report number}`
 
     The output path is `output/cv-{candidate}-{report}-{company}-{YYYY-MM-DD}.docx`.
-    Omit `-{report}` only when no report number exists at all.
+    `{report number}` is the NNN from the report filename/link (e.g. `008` for
+    `reports/008-acme-….md`), not the tracker `#` column. Pass `--report` whenever
+    the application has (or will have) a report; it records the Word file in
+    `data/pdf-index.tsv` (`pdf` = the `.docx`, `html` = the tailored `.md`,
+    `format` = `letter`, `kind` = `cv`). Omit `--report` and the `-{report}`
+    filename segment only when no report number exists at all.
     `generate-docx.mjs` reads the document back and compares its words with the
     markdown; a mismatch writes nothing and exits 1. It also runs the fact gate
     unless `--skip-fact-check` is passed. If it fails, stop.
@@ -113,10 +119,7 @@ output/cv-{candidate}-{report}-{company}-{YYYY-MM-DD}.md
 - {N} sections rendered
 - {K}/{Total} JD keywords matched ({pct}% coverage)
 - Unmatched (consider addressing manually): {top 3 unmatched}
-- Not yet in the tracker, web, or dashboard
 ```
-
-    The `.docx` is **not yet visible** in the tracker, the web app, or the dashboard. Indexing and the tracker cell are a later step. Do not tell the user the file is attached to the application row.
 
 ## Markdown shape
 
@@ -207,8 +210,11 @@ Do not auto-generate the cover letter PDF without going through the interactive 
 
 ## Post-generation
 
-**Leave the tracker's PDF/Word column alone.** Indexing the `.docx` and writing
-the tracker cell is a later step. Marking the column `✅` here would point
-consumers at a file they cannot yet resolve through `data/pdf-index.tsv`. The
-file is not yet visible in the tracker, web, or dashboard. The report text is
-in Step 23.
+If the job is already in the tracker, flip its CV cell from ❌ to ✅ with
+`node mark-pdf-ready.mjs {report number}` (the same report number passed to
+`--report` above). `mark-pdf-ready.mjs` only flips placeholder cells
+(empty / ❌ / — / -, including a U+FE0F variant); a `[Word](…)` /
+`[docx](…)` link is left for `scripts/docx-backfill.mjs`. Do not edit
+`data/applications.md` by hand. Write the report header
+`**PDF:** output/cv-{candidate}-{report}-{company}-{YYYY-MM-DD}.docx`.
+The report text is in Step 23.
