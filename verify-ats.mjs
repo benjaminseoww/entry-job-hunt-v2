@@ -5,12 +5,16 @@
  *
  * The twin of verify-cv-facts.mjs: that gate guards *what* a CV claims; this one
  * guards *whether an ATS can parse it at all*. No LLM, no network, no writes — it
- * reads one CV HTML (the output of `pdf` mode, before PDF rendering) and reports a
- * 0-100 structural score, a letter grade, and a list of concrete, fixable issues.
+ * reads one generated CV and reports a 0-100 structural score, a letter grade,
+ * and a list of concrete, fixable issues. HTML (the output of `pdf` mode, before
+ * PDF rendering) runs every check. Markdown and Word (`.md` / `.docx`) run the
+ * text-level checks only — sections, contact, keywords, length — and list the
+ * layout checks that need HTML as "n/a for Word" (or markdown).
  *
  * Usage:
- *   node verify-ats.mjs <generated-cv.html>
+ *   node verify-ats.mjs <generated-cv.html|md|docx>
  *   node verify-ats.mjs <generated-cv.html> --keywords "python,kubernetes,rag"
+ *   node verify-ats.mjs <generated-cv.docx> --json
  *   node verify-ats.mjs <generated-cv.html> --role "Senior Backend Engineer"
  *   node verify-ats.mjs <generated-cv.html> --min-score 80 --json
  *   node verify-ats.mjs --self-test
@@ -21,10 +25,12 @@
  */
 
 import { readFileSync, statSync } from 'fs';
-import { isAbsolute, join, basename } from 'path';
+import { isAbsolute, join, basename, extname } from 'path';
 import { fileURLToPath } from 'url';
-import { isMainModule } from './lib/is-main-module.mjs'; 
+import { isMainModule } from './lib/is-main-module.mjs';
 import { asciiFold } from './lib/ascii-fold.mjs';
+import { headingText, normalizePandocLine } from './lib/cv-markdown.mjs';
+import { extractDocxText, MAX_DOCX_BYTES } from './lib/docx-text.mjs';
 
 const DEFAULT_MIN_SCORE = 70;
 
@@ -40,6 +46,10 @@ const WEIGHTS = {
   charset: 5,      // UTF-8 declared
   hidden: 5,       // no hidden text / keyword stuffing
 };
+
+// Checks that inspect HTML/CSS. Markdown and Word run the text-level checks
+// only (length, sections, contact, keywords) and list these as n/a.
+const HTML_ONLY_CHECKS = ['layout', 'images', 'fonts', 'charset', 'hidden'];
 
 const TEXT_MIN_CHARS = 300;      // below this, the CV likely has no real text layer
 const TEXT_LOW_WITH_IMG = 800;   // images + this little text ⇒ text probably baked in
@@ -456,6 +466,127 @@ function gradeFor(score) {
 }
 
 /**
+ * Each term must START a word: `formation` must not be found inside
+ * `Information`, nor `formacion` inside `Informacion`. `\b` is ASCII-only, so
+ * the boundary is "not preceded by a letter or digit" in any script. Terms
+ * stay open on the right (`experien`, `competen`) and the German, Dutch and
+ * Danish compounds that put the key word LAST are listed whole.
+ *
+ * Matched against BOTH the raw heading and its ASCII fold. The Latin terms
+ * are therefore written unaccented: `competenc` catches Competences,
+ * Competências and Competenze via the fold, so only genuinely different
+ * words need their own alternative.
+ *
+ * career-ops ships evaluation modes for ar, da, de, es, fr, hi, id, it, ja,
+ * ko, nl, pl, pt, ru, tr, ua, zh and zh-TW. The Skills and experience terms
+ * are taken from the `| Skills |` and `| Career history |` rows of each
+ * modes/<lang>/README.md rather than invented here; the education terms had
+ * no such table and are the ordinary CV heading in each language.
+ */
+const startsWord = (terms) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${terms.join('|')})`, 'u');
+const REQUIRED_SECTIONS = [
+  { name: 'Experience', re: startsWord([
+    'experience', 'work history', 'employment',          // en
+    'experien', 'esperienza',                            // es pt fr (folded); it spells it with an s
+    'erfahrung', 'berufserfahrung', 'arbeitserfahrung', 'werdegang', // de: compounds put it last
+    'ervaring', 'werkervaring', 'loopbaan',              // nl
+    'doswiadczenie', 'przebieg kariery',                 // pl
+    'deneyim',                                           // tr
+    'erhvervserfaring', 'karriereforlob',                // da
+    'riwayat karier', 'pengalaman',                      // id
+    'parcours professionnel',                            // fr
+    'trayectoria', 'trajetoria',                         // es pt
+    'percorso professionale',                            // it
+    '職務経歴', '職歴',                                    // ja
+    '경력',                                                // ko
+    'опыт работы',                                    // ru
+    'досвід роботи',                                    // ua
+    'الخبرات', 'التاريخ المهني',                        // ar
+    'करियर',                                              // hi
+    '工作经历', '工作經歷',                                  // zh zh-TW
+  ]) },
+  { name: 'Education', re: startsWord([
+    'education', 'academic',                             // en
+    'formation', 'formacion', 'formacao',                // fr es pt
+    'ausbildung', 'bildung', 'studium',                  // de
+    'istruzione',                                        // it
+    'opleiding',                                         // nl
+    'wyksztalcenie',                                     // pl
+    'egitim',                                            // tr
+    'uddannelse',                                        // da
+    'pendidikan',                                        // id
+    '学歴',                                                // ja
+    '학력',                                                // ko
+    'образование',                                      // ru
+    'освіта',                                              // ua
+    'التعليم', 'المؤهلات',                            // ar
+    'शिक्षा',                                             // hi
+    '教育背景', '學歷',                                    // zh zh-TW
+  ]) },
+  { name: 'Skills', re: startsWord([
+    'skills', 'competen', 'proficienc',                  // en, + es pt fr folded; 'competen' also covers it 'Competenze'
+    'kenntnisse', 'fachkenntnisse', 'sprachkenntnisse', 'fahigkeiten', // de
+    'habilidades',                                       // es pt
+    'vaardigheden',                                      // nl
+    'umiejetnosci',                                      // pl
+    'beceri',                                            // tr
+    'kompetenc', 'kernkompetenc',                        // da + pl/pt variants
+    'keahlian',                                          // id
+    'スキル',                                              // ja
+    '역량', '기술',                                          // ko
+    'навыки',                                              // ru
+    'навички',                                             // ua
+    'مهارات',                                             // ar
+    'कौशल',                                               // hi
+    '技能', '专业技能', '專業技能',                           // zh zh-TW: 專業技能 does not start with 技能
+  ]) },
+];
+const BONUS_SECTION_RES = [/summary|profile|objective/, /projects/, /certificat|licenses/];
+
+/**
+ * Score standard section headings. Returns 0–20 points (5 per required
+ * heading found, plus up to 5 bonus) and records missing-heading issues.
+ * @param {string} headingBlob
+ * @param {(severity:string, message:string) => void} add
+ * @returns {number}
+ */
+function applySectionScore(headingBlob, add) {
+  let points = 0;
+  const missing = [];
+  for (const s of REQUIRED_SECTIONS) {
+    if (s.re.test(headingBlob)) points += 5;
+    else missing.push(s.name);
+  }
+  const bonus = BONUS_SECTION_RES.filter(re => re.test(headingBlob)).length;
+  points += Math.min(5, bonus * 2);
+  if (missing.length) {
+    add(missing.length >= 2 ? 'critical' : 'warning',
+      `Missing standard section heading(s): ${missing.join(', ')}. ATS parsers key off recognizable headings (Experience, Education, Skills).`);
+  }
+  return points;
+}
+
+/**
+ * Optional, advisory keyword coverage — never folded into the structural score.
+ * @param {string} text
+ * @param {{keywords?: string|string[], role?: string}} opts
+ * @returns {null|{total:number,found:number,percent:number,missing:string[]}}
+ */
+function keywordCoverageFor(text, opts) {
+  const keywords = normalizeKeywords(opts.keywords, opts.role);
+  if (!keywords.length) return null;
+  const haystack = text.toLowerCase();
+  const found = keywords.filter(k => haystack.includes(k.toLowerCase()));
+  const missingKeywords = keywords.filter(k => !haystack.includes(k.toLowerCase()));
+  return {
+    total: keywords.length,
+    found: found.length,
+    percent: Math.round((found.length / keywords.length) * 100),
+    missing: missingKeywords,
+  };
+}
+
+/**
  * Score a CV HTML string for ATS-friendliness.
  * @param {string} html
  * @param {{keywords?: string|string[], role?: string}} [opts]
@@ -482,93 +613,7 @@ function auditAts(html, opts = {}) {
 
   // 2. Standard section headings.
   const headingBlob = extractHeadings(html).join(' | ');
-  // Matched against BOTH the raw heading and its ASCII fold (extractHeadings
-  // emits each). The Latin terms are therefore written unaccented: `competenc`
-  // catches Competences, Competências and Competenze via the fold, so only
-  // genuinely different words need their own alternative.
-  //
-  // career-ops ships evaluation modes for ar, da, de, es, fr, hi, id, it, ja,
-  // ko, nl, pl, pt, ru, tr, ua, zh and zh-TW, and before this every one of
-  // them failed the gate on a structurally perfect CV. The Skills and
-  // experience terms are taken from the `| Skills |` and `| Career history |`
-  // rows of each modes/<lang>/README.md rather than invented here; the
-  // education terms had no such table and are the ordinary CV heading in each
-  // language. Native-speaker corrections welcome, as in #3223.
-  // Each term must START a word: `formation` must not be found inside
-  // `Information`, nor `formacion` inside `Informacion`. `\b` is ASCII-only, so
-  // the boundary is "not preceded by a letter or digit" in any script. Terms
-  // stay open on the right (`experien`, `competen`) and the German, Dutch and
-  // Danish compounds that put the key word LAST are listed whole.
-  const startsWord = (terms) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${terms.join('|')})`, 'u');
-  const required = [
-    { name: 'Experience', re: startsWord([
-      'experience', 'work history', 'employment',          // en
-      'experien', 'esperienza',                            // es pt fr (folded); it spells it with an s
-      'erfahrung', 'berufserfahrung', 'arbeitserfahrung', 'werdegang', // de: compounds put it last
-      'ervaring', 'werkervaring', 'loopbaan',              // nl
-      'doswiadczenie', 'przebieg kariery',                 // pl
-      'deneyim',                                           // tr
-      'erhvervserfaring', 'karriereforlob',                // da
-      'riwayat karier', 'pengalaman',                      // id
-      'parcours professionnel',                            // fr
-      'trayectoria', 'trajetoria',                         // es pt
-      'percorso professionale',                            // it
-      '職務経歴', '職歴',                                    // ja
-      '경력',                                                // ko
-      'опыт работы',                                    // ru
-      'досвід роботи',                                    // ua
-      'الخبرات', 'التاريخ المهني',                        // ar
-      'करियर',                                              // hi
-      '工作经历', '工作經歷',                                  // zh zh-TW
-    ]) },
-    { name: 'Education', re: startsWord([
-      'education', 'academic',                             // en
-      'formation', 'formacion', 'formacao',                // fr es pt
-      'ausbildung', 'bildung', 'studium',                  // de
-      'istruzione',                                        // it
-      'opleiding',                                         // nl
-      'wyksztalcenie',                                     // pl
-      'egitim',                                            // tr
-      'uddannelse',                                        // da
-      'pendidikan',                                        // id
-      '学歴',                                                // ja
-      '학력',                                                // ko
-      'образование',                                      // ru
-      'освіта',                                              // ua
-      'التعليم', 'المؤهلات',                            // ar
-      'शिक्षा',                                             // hi
-      '教育背景', '學歷',                                    // zh zh-TW
-    ]) },
-    { name: 'Skills', re: startsWord([
-      'skills', 'competen', 'proficienc',                  // en, + es pt fr folded; 'competen' also covers it 'Competenze'
-      'kenntnisse', 'fachkenntnisse', 'sprachkenntnisse', 'fahigkeiten', // de
-      'habilidades',                                       // es pt
-      'vaardigheden',                                      // nl
-      'umiejetnosci',                                      // pl
-      'beceri',                                            // tr
-      'kompetenc', 'kernkompetenc',                        // da + pl/pt variants
-      'keahlian',                                          // id
-      'スキル',                                              // ja
-      '역량', '기술',                                          // ko
-      'навыки',                                              // ru
-      'навички',                                             // ua
-      'مهارات',                                             // ar
-      'कौशल',                                               // hi
-      '技能', '专业技能', '專業技能',                           // zh zh-TW: 專業技能 does not start with 技能
-    ]) },
-  ];
-  const missing = [];
-  for (const s of required) {
-    if (s.re.test(headingBlob)) score += 5;
-    else missing.push(s.name);
-  }
-  const bonus = [/summary|profile|objective/, /projects/, /certificat|licenses/]
-    .filter(re => re.test(headingBlob)).length;
-  score += Math.min(5, bonus * 2);
-  if (missing.length) {
-    add(missing.length >= 2 ? 'critical' : 'warning',
-      `Missing standard section heading(s): ${missing.join(', ')}. ATS parsers key off recognizable headings (Experience, Education, Skills).`);
-  }
+  score += applySectionScore(headingBlob, add);
 
   // 3. Contact info reachable in the body. We strip only *semantic* <header>/
   // <footer> elements: those map to the PDF page header/footer regions ATS
@@ -698,23 +743,131 @@ function auditAts(html, opts = {}) {
     add('warning', `Possible hidden text / keyword stuffing (${hiddenSignals.join(', ')}). Hidden keywords are penalised by modern ATS and by recruiters who read the extracted text.`);
   }
 
-  // Optional, advisory keyword coverage — never folded into the structural score.
-  let keywordCoverage = null;
-  const keywords = normalizeKeywords(opts.keywords, opts.role);
-  if (keywords.length) {
-    const haystack = text.toLowerCase();
-    const found = keywords.filter(k => haystack.includes(k.toLowerCase()));
-    const missingKeywords = keywords.filter(k => !haystack.includes(k.toLowerCase()));
-    keywordCoverage = {
-      total: keywords.length,
-      found: found.length,
-      percent: Math.round((found.length / keywords.length) * 100),
-      missing: missingKeywords,
-    };
-  }
+  const keywordCoverage = keywordCoverageFor(text, opts);
 
   score = Math.max(0, Math.min(100, Math.round(score)));
   return { score, grade: gradeFor(score), issues, keywordCoverage };
+}
+
+/**
+ * A Word display heading: the Garamond template uppercases section titles on
+ * the page. Body copy stays sentence case, so an all-caps Latin line is a
+ * heading rather than a sentence that happens to contain "experience".
+ * @param {string} line
+ * @returns {boolean}
+ */
+function isWordDisplayHeading(line) {
+  if (line.length > 80 || /[.!?]$/.test(line)) return false;
+  const letters = line.match(/\p{L}/gu);
+  if (!letters || letters.length < 3) return false;
+  if (line !== line.toUpperCase()) return false;
+  // Require a real uppercase/lowercase distinction so CJK body lines (no case)
+  // are not treated as headings.
+  return /[A-Z]/.test(line);
+}
+
+/**
+ * Section headings from markdown ATX lines and Word's uppercase display titles.
+ * Same ASCII-fold pair extractHeadings emits, so applySectionScore is shared.
+ * @param {string} text
+ * @returns {string[]}
+ */
+function extractPlainHeadings(text) {
+  const out = [];
+  for (const raw of String(text).split(/\r?\n/)) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const normalized = normalizePandocLine(trimmed);
+    let heading = null;
+    for (let level = 1; level <= 6; level++) {
+      heading = headingText(normalized, level);
+      if (heading) break;
+    }
+    if (heading) {
+      out.push(heading);
+      continue;
+    }
+    if (isWordDisplayHeading(trimmed)) out.push(trimmed);
+  }
+  return out
+    .flatMap(s => [s.toLowerCase(), asciiFold(s).toLowerCase()])
+    .filter(Boolean);
+}
+
+/**
+ * Score a plain-text CV (markdown or Word-extracted text) for ATS-friendliness.
+ * Text-level checks only; HTML layout checks are listed as n/a and awarded in
+ * full so a well-formed Word/markdown CV is not failed for missing CSS.
+ *
+ * @param {string} text
+ * @param {{keywords?: string|string[], role?: string, kind?: 'docx'|'md'}} [opts]
+ * @returns {{score:number, grade:string, issues:{severity:string,message:string}[], keywordCoverage:null|{total:number,found:number,percent:number,missing:string[]}, naChecks:string[]}}
+ */
+function auditAtsPlain(text, opts = {}) {
+  const kind = opts.kind === 'md' ? 'md' : 'docx';
+  const reason = kind === 'md' ? 'n/a for markdown' : 'n/a for Word';
+  const issues = [];
+  const add = (severity, message) => issues.push({ severity, message });
+  let score = 0;
+
+  if (text.length >= TEXT_MIN_CHARS) {
+    score += WEIGHTS.text;
+  } else {
+    add('critical', `Very little selectable text (${text.length} chars, expected >= ${TEXT_MIN_CHARS}). The CV may be image-based or rasterized; ATS parsers need a real text layer.`);
+  }
+
+  const headingBlob = extractPlainHeadings(text).join(' | ');
+  score += applySectionScore(headingBlob, add);
+
+  const hasEmail = EMAIL_RE.test(text);
+  const hasPhone = hasPhoneNumber(text);
+  if (hasEmail) {
+    score += 10;
+  } else {
+    add('critical', 'No email address found. ATS and recruiters need a parseable contact email in the body of the CV.');
+  }
+  if (hasPhone) score += 5;
+  else add('info', 'No phone number detected (optional, but many ATS intake forms expect one).');
+
+  const naChecks = [];
+  for (const check of HTML_ONLY_CHECKS) {
+    score += WEIGHTS[check];
+    add('info', `${check}: ${reason}`);
+    naChecks.push(check);
+  }
+
+  const keywordCoverage = keywordCoverageFor(text, opts);
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  return { score, grade: gradeFor(score), issues, keywordCoverage, naChecks };
+}
+
+/**
+ * Score a generated CV file. `.docx` is unzipped through lib/docx-text.mjs;
+ * `.md` is read as UTF-8; everything else is HTML (the historical path).
+ *
+ * @param {string} targetPath
+ * @param {{keywords?: string|string[], role?: string}} [opts]
+ * @returns {ReturnType<typeof auditAts> | ReturnType<typeof auditAtsPlain>}
+ */
+function auditAtsFromPath(targetPath, opts = {}) {
+  const ext = extname(targetPath).toLowerCase();
+  if (ext === '.docx') {
+    const { size } = statSync(targetPath);
+    if (size > MAX_DOCX_BYTES) throw new Error(`Corrupt .docx: file exceeds ${MAX_DOCX_BYTES} bytes`);
+    let text;
+    try {
+      text = extractDocxText(readFileSync(targetPath));
+    } catch (err) {
+      const msg = String(err?.message || err);
+      if (msg.startsWith('Corrupt .docx:') || msg === 'no readable text in .docx') throw err;
+      throw new Error(`Corrupt .docx: ${msg}`);
+    }
+    return auditAtsPlain(text, { ...opts, kind: 'docx' });
+  }
+  if (ext === '.md' || ext === '.markdown') {
+    return auditAtsPlain(readFileSync(targetPath, 'utf-8'), { ...opts, kind: 'md' });
+  }
+  return auditAts(readFileSync(targetPath, 'utf-8'), opts);
 }
 
 /**
@@ -731,11 +884,15 @@ function isPass(result, minScore) {
 export {
   extractVisibleText,
   extractHeadings,
+  extractPlainHeadings,
   auditAts,
+  auditAtsPlain,
+  auditAtsFromPath,
   gradeFor,
   isPass,
   normalizeKeywords,
   DEFAULT_MIN_SCORE,
+  HTML_ONLY_CHECKS,
 };
 
 // ── Self-test ────────────────────────────────────────────────────────
@@ -1300,11 +1457,13 @@ if (isMainModule(import.meta.url)) {
 
     const helpRequested = args.includes('--help') || args.includes('-h');
     if (!targetArg || helpRequested) {
-      console.log(`Usage: node verify-ats.mjs <generated-cv.html> [--keywords "a,b,c"] [--role "..."] [--min-score N] [--json]
+      console.log(`Usage: node verify-ats.mjs <generated-cv.html|md|docx> [--keywords "a,b,c"] [--role "..."] [--min-score N] [--json]
 
-Scores a generated CV's HTML for ATS parseability (0-100 + letter grade) and lists
-concrete, fixable issues. Deterministic, read-only. Exits 0 when score >= --min-score
-(default ${DEFAULT_MIN_SCORE}) and no critical issue is present, else 1.
+Scores a generated CV for ATS parseability (0-100 + letter grade) and lists
+concrete, fixable issues. HTML runs every check. Markdown and Word (.md / .docx)
+run the text-level checks only; layout checks that need HTML are listed as
+"n/a for Word" (or markdown). Deterministic, read-only. Exits 0 when score >=
+--min-score (default ${DEFAULT_MIN_SCORE}) and no critical issue is present, else 1.
 
 Keyword coverage (--keywords / --role) is advisory and never changes the score.`);
       // An explicit --help is a success; a missing target is a usage error.
@@ -1312,15 +1471,14 @@ Keyword coverage (--keywords / --role) is advisory and never changes the score.`
     }
 
     const targetPath = isAbsolute(targetArg) ? targetArg : join(process.cwd(), targetArg);
-    let html;
+    let result;
     try {
       if (!statSync(targetPath).isFile()) throw new Error('not a regular file');
-      html = readFileSync(targetPath, 'utf-8');
+      result = auditAtsFromPath(targetPath, { keywords, role });
     } catch (err) {
       console.error(`ERROR: cannot read target file: ${targetArg} (${err.code || err.message})`);
       process.exit(1);
     }
-    const result = auditAts(html, { keywords, role });
     const pass = isPass(result, minScore);
     const file = basename(targetPath);
 
