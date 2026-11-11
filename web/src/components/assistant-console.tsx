@@ -223,6 +223,15 @@ export function AssistantConsole() {
   const explore = useExplore();
   const exploreRef = useRef(explore);
   exploreRef.current = explore;
+  const cvOutputFormatRef = useRef<"pdf" | "docx">("pdf");
+  useEffect(() => {
+    fetch("/api/cv-output-format")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.format === "docx" || d?.format === "pdf") cvOutputFormatRef.current = d.format;
+      })
+      .catch(() => {});
+  }, []);
   const handledRef = useRef<Set<string>>(new Set());
   const confirmRuns = useRef<Map<string, () => DoneInfo>>(new Map());
   const statusRuns = useRef(new Map<string, { run?: () => Promise<DoneInfo>; pending: boolean; settled: boolean }>());
@@ -562,6 +571,7 @@ export function AssistantConsole() {
           })
           .catch((e) => appendParts([{ type: "note", text: `Your personalization was NOT saved: ${e instanceof Error ? e.message : "the request failed"}` }]));
       },
+      cvOutputFormat: cvOutputFormatRef.current,
     };
   }
 

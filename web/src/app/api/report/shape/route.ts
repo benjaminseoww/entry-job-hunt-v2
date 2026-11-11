@@ -52,6 +52,7 @@ export async function GET() {
       tracker: { candidates: trackerCandidates, parsed: readApplications().length },
       reports: dirCount("reports", ".md"),
       pdfs: dirCount("output", ".pdf"),
+      docxs: dirCount("output", ".docx"),
       followupsFile: fs.existsSync(path.join(careerOpsRoot(), "data", "follow-ups.md")),
     },
     capabilities: {

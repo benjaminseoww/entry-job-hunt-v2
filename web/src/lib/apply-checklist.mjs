@@ -19,7 +19,7 @@ export const PORTAL_TIPS = [
   },
   {
     portal: "Greenhouse",
-    tip: "No account. Upload the PDF, then paste the fields below.",
+    tip: "No account. Upload the CV, then paste the fields below.",
   },
   {
     portal: "Lever",

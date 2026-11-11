@@ -1,4 +1,4 @@
-// In-memory registry of in-flight runs that WRITE the tracker (kind evaluate/pdf →
+// In-memory registry of in-flight runs that WRITE the tracker (kind evaluate/pdf/docx →
 // the core runs merge-tracker / updates applications.md). The web is a single local
 // Node process, so a module-level set is enough.
 //

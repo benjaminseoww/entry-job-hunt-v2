@@ -68,7 +68,12 @@ export const CAPS = Object.freeze({
  * Lives here rather than in claude-invocation.mjs because it is a fact about the
  * run route's workers, not about Claude. Re-exported there for existing importers.
  */
-export const KNOWN_KINDS = Object.freeze(["pdf", "research", "evaluate", "fix-portal", "cover"]);
+export const KNOWN_KINDS = Object.freeze(["pdf", "docx", "research", "evaluate", "fix-portal", "cover"]);
+
+/** Tailored-CV workers (PDF or Word). Both mutate the tracker PDF column. */
+export function isCvWorkerKind(kind) {
+  return kind === "pdf" || kind === "docx";
+}
 
 /**
  * What each run-route kind needs. Derived from what its prompt actually does
@@ -76,6 +81,8 @@ export const KNOWN_KINDS = Object.freeze(["pdf", "research", "evaluate", "fix-po
  *
  * - pdf       reads cv.md/profile/report/template and returns the CV inline in an
  *             envelope the backend persists — no write, and no fetch.
+ * - docx      same as pdf, but the envelope is tailored markdown and the
+ *             backend renders Word. Local files only.
  * - research  "use WebFetch for URLs" — fetches, reports, never writes.
  * - evaluate  "Use WebFetch to read the posting", then emits the report inline.
  *             The backend persists it. The agent must not write: the posting is
@@ -90,6 +97,7 @@ export const KNOWN_KINDS = Object.freeze(["pdf", "research", "evaluate", "fix-po
  */
 const KIND_CAPABILITIES = Object.freeze({
   pdf: CAPS.localReadOnly,
+  docx: CAPS.localReadOnly,
   research: CAPS.networkReadOnly,
   evaluate: CAPS.networkReadOnly,
   "fix-portal": CAPS.workspaceWrite,

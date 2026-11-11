@@ -35,6 +35,7 @@ export function hasToken(filenameLower, token) {
   return re.test(filenameLower);
 }
 
+/** `cv-*.pdf` and `cv-*.docx` — extension is the caller's filter, not this matcher. */
 export function matchesTailoredCv(filenameLower, slug) {
   if (!filenameLower.startsWith('cv-')) return false;
   return hasToken(filenameLower, slug);

@@ -28,7 +28,10 @@ export async function resolveTailoredCv(company?: string, applicationNumber?: st
   const dir = path.join(root, "output");
   let files: string[];
   try {
-    files = fs.readdirSync(dir).filter((f) => f.toLowerCase().endsWith(".pdf"));
+    files = fs.readdirSync(dir).filter((f) => {
+      const lower = f.toLowerCase();
+      return lower.endsWith(".pdf") || lower.endsWith(".docx");
+    });
   } catch {
     return null;
   }

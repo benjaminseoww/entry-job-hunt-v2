@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { parsePdfManifestRows } from "./apply/cv-selection.mjs";
-import { inlineDisposition } from "./content-disposition.mjs";
+import { DOCX_MIME, attachmentDisposition, inlineDisposition } from "./content-disposition.mjs";
+import { isCvOutputFilename, isDocxPath } from "./cv-format.mjs";
 
 export type DocumentKind = "cv" | "cover" | "unknown";
 
@@ -78,12 +79,12 @@ export function discoverDocuments(opts: DiscoverOptions): DiscoveredDocument[] {
 
 
   for (const filename of entries) {
-    if (!filename.toLowerCase().endsWith(".pdf")) continue;
+    if (!isCvOutputFilename(filename)) continue;
 
     const absPath = path.resolve(outputDir, filename);
 
     // 2. Clarify symlink policy: Reject symlinks outright (internal and external)
-    // Rationale: Generated PDFs are canonical outputs written directly by the CLI.
+    // Rationale: Generated CVs are canonical outputs written directly by the CLI.
     // Allowing symlinks here is unnecessary and introduces path resolution / spoofing risks.
     try {
       if (!fs.lstatSync(absPath).isFile()) continue;
@@ -120,7 +121,7 @@ export function discoverDocuments(opts: DiscoverOptions): DiscoveredDocument[] {
 
     // Fallback classification if manifest is missing or didn't have a kind
     if (kind === "unknown") {
-      const name = filename.toLowerCase().replace(/\.pdf$/, "");
+      const name = filename.toLowerCase().replace(/\.(pdf|docx)$/, "");
       if (name.startsWith("cv-")) {
         kind = "cv";
       } else if (/^cover([-_]|$)/.test(name) || /[-_]cover$/.test(name)) {
@@ -216,16 +217,17 @@ export async function handleDocumentsRequest(
       }
 
       const buf = fs.readFileSync(fd);
+      const word = isDocxPath(doc.filename);
       return new Response(new Uint8Array(buf), {
         status: 200,
         headers: {
-          "Content-Type": "application/pdf",
-          "Content-Disposition": inlineDisposition(doc.filename),
+          "Content-Type": word ? DOCX_MIME : "application/pdf",
+          "Content-Disposition": word ? attachmentDisposition(doc.filename) : inlineDisposition(doc.filename),
           "Cache-Control": "no-store",
         },
       });
     } catch {
-      return new Response("could not read the PDF", { status: 500 });
+      return new Response("could not read the file", { status: 500 });
     } finally {
       fs.closeSync(fd);
     }

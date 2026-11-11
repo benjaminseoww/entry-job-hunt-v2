@@ -21,6 +21,7 @@ export type Shape = {
     tracker?: { candidates?: number; parsed?: number };
     reports?: number;
     pdfs?: number;
+    docxs?: number;
     followupsFile?: boolean;
   };
   capabilities?: { scanJson?: boolean; trackerDelete?: boolean };
@@ -132,7 +133,7 @@ export function issueBody(d: Diag, description: string): string {
         "## Data shape (counts only — no contents)",
         `- **Setup:** ${s.setup?.phase || "?"}${s.setup?.missing?.length ? ` · missing: ${s.setup.missing.join(", ")}` : ""}`,
         `- **Inbox:** ${fmt(s.data?.inbox?.parsed)}/${fmt(s.data?.inbox?.candidates)} rows parsed · **Tracker:** ${fmt(s.data?.tracker?.parsed)}/${fmt(s.data?.tracker?.candidates)} rows parsed`,
-        `- **Reports:** ${fmt(s.data?.reports)} · **PDFs:** ${fmt(s.data?.pdfs)} · **Follow-ups engine:** ${d.followupsAvailable === null ? "?" : d.followupsAvailable ? "ok" : "DEGRADED"}`,
+        `- **Reports:** ${fmt(s.data?.reports)} · **CVs:** ${fmt((s.data?.pdfs ?? 0) + (s.data?.docxs ?? 0))} · **Follow-ups engine:** ${d.followupsAvailable === null ? "?" : d.followupsAvailable ? "ok" : "DEGRADED"}`,
         `- **Core capabilities:** scan --json ${s.capabilities?.scanJson ? "yes" : "no"} · tracker delete ${s.capabilities?.trackerDelete ? "yes" : "no"}`,
         `- **Server:** node ${s.runtime?.node || "?"} · ${s.runtime?.platform || "?"}/${s.runtime?.arch || "?"}`,
         "",

@@ -58,6 +58,8 @@ export type ActionCtx = {
   writeProfile?: (patch: Record<string, unknown>) => Promise<string | null>; // merge-safe config/profile.yml write
   writePortals?: (roles: string[], location?: string[]) => Promise<string | null>; // merge-safe portals.yml title_filter write
   writePersonalization?: (patch: Record<string, unknown>) => void; // section-safe modes/_profile.md write
+  /** From cv.output_format. GeneratePdf starts a Word run when this is "docx". */
+  cvOutputFormat?: "pdf" | "docx";
 };
 
 export type ProfilePatch = {
@@ -267,7 +269,31 @@ const ACTIONS: Record<string, ActionDef> = {
       const n = String(raw.n ?? "").trim();
       if (!n) return { status: "ignored", note: "need an application #" };
       const app = applicationByNumber(ctx.applications, n);
-      const id = ctx.startJob({ title: `CV PDF · ${app?.company ?? `#${n}`}`, subtitle: "tailored CV", kind: "pdf", input: n, page: `/pipeline/${n}` });
+      const kind = ctx.cvOutputFormat === "docx" ? "docx" : "pdf";
+      const id = ctx.startJob({
+        title: `CV · ${app?.company ?? `#${n}`}`,
+        subtitle: kind === "docx" ? "Word" : "PDF",
+        kind,
+        input: n,
+        page: `/pipeline/${n}`,
+      });
+      return { status: "done", jobIds: id ? [id] : [] };
+    },
+  },
+
+  generateDocx: {
+    sideEffect: "spend",
+    run: (raw, ctx) => {
+      const n = String(raw.n ?? "").trim();
+      if (!n) return { status: "ignored", note: "need an application #" };
+      const app = applicationByNumber(ctx.applications, n);
+      const id = ctx.startJob({
+        title: `CV · ${app?.company ?? `#${n}`}`,
+        subtitle: "Word",
+        kind: "docx",
+        input: n,
+        page: `/pipeline/${n}`,
+      });
       return { status: "done", jobIds: id ? [id] : [] };
     },
   },

@@ -100,4 +100,7 @@ test("portal tips name the five boards and tell iCIMS to create an account first
   assert.deepEqual(PORTAL_TIPS.map((tip) => tip.portal), ["Workday", "iCIMS", "Greenhouse", "Lever", "Ashby"]);
   const icims = PORTAL_TIPS.find((tip) => tip.portal === "iCIMS");
   assert.match(icims.tip, /Create an account first/);
+  const greenhouse = PORTAL_TIPS.find((tip) => tip.portal === "Greenhouse");
+  assert.match(greenhouse.tip, /Upload the CV/);
+  assert.doesNotMatch(greenhouse.tip, /Upload the PDF/);
 });

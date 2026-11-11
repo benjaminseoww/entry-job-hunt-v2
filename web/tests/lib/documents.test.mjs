@@ -159,6 +159,25 @@ test("Discovers and enriches documents using manifest, ignores missing files", (
   }
 });
 
+test("lists a .docx CV with Word fallback classification", () => {
+  const { root, outputDir, manifestPath, isRegularContainedFile, cleanup } = setupTestEnv();
+  try {
+    fs.writeFileSync(path.join(outputDir, "cv-acme.docx"), "PK-docx");
+    touch(path.join(outputDir, "cv-acme.docx"), 3000);
+    const results = discoverDocuments({
+      outputDir,
+      manifestPath,
+      workspaceRoot: root,
+      isRegularContainedFile,
+    });
+    assert.equal(results.length, 1);
+    assert.equal(results[0].filename, "cv-acme.docx");
+    assert.equal(results[0].kind, "cv");
+  } finally {
+    cleanup();
+  }
+});
+
 test("Similar filenames that must not be merged", () => {
   const { root, outputDir, manifestPath, isRegularContainedFile, cleanup } = setupTestEnv();
   try {
