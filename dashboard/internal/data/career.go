@@ -937,6 +937,8 @@ func markdownLinkDestination(raw string) (string, bool) {
 // trackerHeaderAliases maps a lowercased header cell to a canonical field name.
 // Mirrors tracker-aliases.json, which Node and web load directly. Keep the full
 // table in sync; TestTrackerHeaderAliasesMatchSharedJSON guards exact parity.
+// Last occurrence wins: a tracker with both PDF and Word columns binds pdf to
+// the later one — a silent change from main, where Word was unrecognized.
 var trackerHeaderAliases = map[string]string{
 	"#": "num", "num": "num",
 	"date": "date", "fecha": "date", "datum": "date", "data": "date",
@@ -946,7 +948,7 @@ var trackerHeaderAliases = map[string]string{
 	"via": "via", "role": "role", "puesto": "role",
 	"rolle": "role", "rola": "role", "vaga": "role",
 	"location": "location", "ort": "location", "score": "score", "status": "status",
-	"pdf": "pdf", "materials": "pdf", "report": "report",
+	"pdf": "pdf", "materials": "pdf", "word": "pdf", "report": "report",
 	"apply link": "applylink", "apply": "applylink",
 	"follow-up": "followup", "follow up": "followup", "followup": "followup",
 	"notes": "notes", "url": "url",

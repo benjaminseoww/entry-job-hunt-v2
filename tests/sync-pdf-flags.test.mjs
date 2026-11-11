@@ -677,6 +677,75 @@ const PDF_HEADER = '# report\tpdf\thtml\tformat\tdate\tkind';
   }
 }
 
+function runLinkCellSync(label, cell) {
+  const work = mkdtempSync(join(tmpdir(), `cops-sync-${label}-link-`));
+  try {
+    const tracker = join(work, 'applications.md');
+    const pdfIndex = join(work, 'pdf-index.tsv');
+    const contents = [
+      '# Applications Tracker',
+      '',
+      '| # | Date | Company | Role | Score | Status | Word | Report | Notes |',
+      '|---|------|---------|------|-------|--------|------|--------|-------|',
+      `| 1 | 2026-01-01 | Acme | SE | 4.0/5 | Evaluated | ${cell} | [1](reports/1-acme.md) | |`,
+      '',
+    ].join('\n');
+    mkdirSync(join(work, 'output'), { recursive: true });
+    writeFileSync(join(work, 'output', 'x.docx'), 'PK');
+    writeFileSync(tracker, contents);
+    writeFileSync(pdfIndex, [PDF_HEADER, '1\toutput/x.docx\toutput/x.md\tletter\t2026-01-01\tcv', ''].join('\n'));
+    const env = { ...process.env, CAREER_OPS_ROOT: work, CAREER_OPS_TRACKER: tracker, CAREER_OPS_PDF_INDEX: pdfIndex };
+    const plain = spawnSync(NODE, [join(ROOT, 'sync-pdf-flags.mjs')], {
+      encoding: 'utf-8', timeout: 30000, cwd: work, env,
+    });
+    const json = spawnSync(NODE, [join(ROOT, 'sync-pdf-flags.mjs'), '--json'], {
+      encoding: 'utf-8', timeout: 30000, cwd: work, env,
+    });
+    let parsed = null;
+    try { parsed = JSON.parse(json.stdout); } catch { /* asserted below */ }
+    return {
+      status: plain.status,
+      after: readFileSync(tracker, 'utf-8'),
+      before: contents,
+      stderr: plain.stderr,
+      stdout: plain.stdout,
+      jsonStatus: json.status,
+      parsed,
+    };
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+}
+
+{
+  // A Word-header tracker whose CV cell is a file link must stay byte-identical
+  // even when a live index row would otherwise flip the cell to ✅. The link is
+  // the path docx-backfill needs.
+  const WORD_CELL = '[Word](../output/x.docx)';
+  const result = runLinkCellSync('word', WORD_CELL);
+  if (result.status === 0 && result.after === result.before
+      && /left as is \(run docx-backfill\)/.test(result.stderr)
+      && /1 left as is/.test(result.stdout)
+      && result.jsonStatus === 0 && result.parsed?.skipped === 1
+      && result.parsed?.updated === 0) {
+    pass('a [Word](…) cell with a live index row stays byte-identical');
+  } else {
+    fail(`Word-link cell was rewritten or the warning was missing: status=${result.status}, unchanged=${result.after === result.before}, stderr=${JSON.stringify(result.stderr)}, json=${JSON.stringify(result.parsed)}`);
+  }
+}
+
+{
+  const DOCX_CELL = '[docx](../output/x.docx)';
+  const result = runLinkCellSync('docx', DOCX_CELL);
+  if (result.status === 0 && result.after === result.before
+      && /left as is \(run docx-backfill\)/.test(result.stderr)
+      && result.jsonStatus === 0 && result.parsed?.skipped === 1) {
+    pass('a [docx](…) cell with a live index row stays byte-identical');
+  } else {
+    fail(`docx-link cell was rewritten or the warning was missing: status=${result.status}, unchanged=${result.after === result.before}, stderr=${JSON.stringify(result.stderr)}, json=${JSON.stringify(result.parsed)}`);
+  }
+}
+
 if (process.platform === 'win32') {
   warn('presence-unknown case not exercised on win32: a self-referential link needs symlink privilege');
 } else {
