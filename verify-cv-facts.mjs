@@ -1818,7 +1818,7 @@ export function metricClaims(text, { keepPlanHorizons = false, format } = {}) {
 // Used solely to answer "were there count claims this gate could not read?",
 // never to build a claim: it has no lexicon, so it cannot say what was counted.
 const GENERIC_COUNT_RE = new RegExp(
-  String.raw`(?<![\p{L}\p{N}])(\d[\d,.]*)[^\p{L}\p{N}]*(?:[\p{L}][\p{L}\p{M}-]*[\s]+){0,${MODIFIER_WINDOW}}([\p{L}][\p{L}\p{M}]{2,})`,
+  String.raw`(?<![\p{L}\p{N}])(\d[\d,.]*)\s*\+?\s*(?:>\s*)?(?:[\p{L}][\p{L}\p{M}-]*[\s]+){0,${MODIFIER_WINDOW}}([\p{L}][\p{L}\p{M}]{2,})`,
   'giu',
 );
 // A year is not a count. "Led the 2024 migration" is the shape above and none
