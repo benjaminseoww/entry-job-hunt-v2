@@ -151,3 +151,9 @@ test("cover drafts with web research but writes nothing", () => {
   assert.equal(grantsWriteCapability(toolScopeFor("cover")), false);
   assert.ok(KNOWN_KINDS.includes("cover"), "guards that iterate KNOWN_KINDS must reach cover");
 });
+
+test("docx is a local-read-only CV worker like pdf", () => {
+  assert.ok(KNOWN_KINDS.includes("docx"));
+  assert.equal(capabilitiesFor("docx"), CAPS.localReadOnly);
+  assert.equal(capabilitiesFor("docx"), capabilitiesFor("pdf"));
+});

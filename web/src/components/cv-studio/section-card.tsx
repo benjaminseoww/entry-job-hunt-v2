@@ -6,6 +6,7 @@ import { readSavedCliId } from "@/lib/saved-cli";
 import { cn } from "@/lib/cn";
 import { arrange } from "@/lib/cv-studio/html-blocks.mjs";
 import { bulletShown, wordDiff, type StudioAction, type StudioBullet, type StudioEdits, type StudioItem, type StudioSection } from "@/lib/cv-studio/studio.mjs";
+import { studioErrorMessage } from "@/lib/studio-errors.mjs";
 
 type Dispatch = (a: StudioAction) => void;
 
@@ -237,8 +238,8 @@ function RewritePanel({ n, bullet, current, onUse }: { n: string; bullet: Studio
     setProposal({ kind: "running" });
     try {
       const r = await fetch(`/api/cv-studio/${encodeURIComponent(n)}/rewrite`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bulletId: bullet.id, instruction: text, cliId }) });
-      const body = (await r.json()) as { text?: string; keywords?: string[]; warning?: string | null; error?: string };
-      setProposal(r.ok && body.text ? { kind: "ready", text: body.text, keywords: body.keywords ?? [], warning: body.warning ?? null } : { kind: "failed", error: body.error ?? "The rewrite failed." });
+      const body = (await r.json()) as { text?: string; keywords?: string[]; warning?: string | null; error?: string; message?: string };
+      setProposal(r.ok && body.text ? { kind: "ready", text: body.text, keywords: body.keywords ?? [], warning: body.warning ?? null } : { kind: "failed", error: studioErrorMessage(body, "The rewrite failed.") });
     } catch {
       setProposal({ kind: "failed", error: "The rewrite failed. Is the dashboard still running?" });
     }

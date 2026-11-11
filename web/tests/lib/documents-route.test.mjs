@@ -141,6 +141,22 @@ test("API: Unexpected file types and safe response headers", async () => {
   }
 });
 
+test("API: a .docx CV is served as a Word download", async () => {
+  const { root, outputDir, manifestPath, cleanup } = setupTestEnv();
+  try {
+    fs.writeFileSync(path.join(outputDir, "cv-acme.docx"), "PK-docx");
+    const id = Buffer.from("cv-acme.docx").toString("base64url");
+    const req = new Request(`http://localhost:3000/api/documents?id=${id}`);
+    const res = await handleDocumentsRequest(req, root, manifestPath, mockIsRegularContainedFile);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("content-type"), "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    assert.match(res.headers.get("content-disposition"), /^attachment;/);
+    assert.match(res.headers.get("content-disposition"), /cv-acme\.docx/);
+  } finally {
+    cleanup();
+  }
+});
+
 test("API: RFC 8187 filename* encoding percent-encodes reserved characters including parentheses", async () => {
   const { root, outputDir, manifestPath, cleanup } = setupTestEnv();
   try {

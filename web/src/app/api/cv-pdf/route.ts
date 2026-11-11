@@ -87,7 +87,10 @@ export async function GET(req: NextRequest) {
   try {
     files = fs
       .readdirSync(dir)
-      .filter((f) => f.toLowerCase().endsWith(".pdf"))
+      .filter((f) => {
+        const lower = f.toLowerCase();
+        return lower.endsWith(".pdf") || lower.endsWith(".docx");
+      })
       .filter((f) => matchesTailoredCv(f.toLowerCase(), slug))
       // sortNewestFirst already drops directories and files that vanish under
       // it, but not a symlink PLACED in output/ that resolves elsewhere: that

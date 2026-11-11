@@ -9,6 +9,7 @@ import { emptyEdits, resolveStudio, studioReducer, type StudioAction, type Studi
 import { SectionCard } from "./section-card";
 import { CvPreview } from "./cv-preview";
 import { CoverageMeter } from "./coverage-meter";
+import { SAVE_ERRORS, studioErrorMessage } from "@/lib/studio-errors.mjs";
 
 type Loaded = { ok: true; reportNum: string; company: string; file: string; tree: BlockTree; doc: StudioDoc; edits: StudioEdits; stale: boolean; hasBase: boolean };
 type LoadState = { kind: "loading" } | { kind: "error"; reason: string } | { kind: "ready"; data: Loaded };
@@ -21,8 +22,7 @@ const REASONS: Record<string, { title: string; body: string }> = {
   "word-cv": { title: "Word CVs are not editable here yet", body: "CV Studio does not edit Word CVs yet. Open the .docx from the report page instead." },
 };
 
-const STALE = "This CV was regenerated in another tab. Reload the Studio.";
-const SAVE_ERRORS: Record<string, string> = { stale: STALE, busy: "This CV is already being saved. Wait for that save to finish." };
+const STALE = SAVE_ERRORS.stale;
 
 export function CvStudio({ n }: { n: string }) {
   const [load, setLoad] = useState<LoadState>({ kind: "loading" });
@@ -93,8 +93,8 @@ function Studio({ n, data }: { n: string; data: Loaded }) {
     setSave({ kind: "saving" });
     try {
       const r = await send("POST", { op: "save", edits });
-      const body = (await r.json()) as { pdf?: string; indexed?: boolean; warnings?: string[]; error?: string };
-      setSave(r.ok && body.pdf ? { kind: "saved", pdf: body.pdf, indexed: body.indexed === true, warnings: body.warnings ?? [] } : { kind: "failed", error: SAVE_ERRORS[body.error ?? ""] ?? body.error ?? "Saving failed." });
+      const body = (await r.json()) as { pdf?: string; indexed?: boolean; warnings?: string[]; error?: string; message?: string };
+      setSave(r.ok && body.pdf ? { kind: "saved", pdf: body.pdf, indexed: body.indexed === true, warnings: body.warnings ?? [] } : { kind: "failed", error: studioErrorMessage(body, "Saving failed.") });
     } catch {
       setSave({ kind: "failed", error: "Saving failed. Is the dashboard still running?" });
     }

@@ -7,7 +7,7 @@ const FIELD_KEYS = {
   score: "Score",
   legitimacy: "Legitimacy",
   legitimidad: "Legitimacy",
-  pdf: "PDF",
+  pdf: "CV",
 };
 
 const DECISION_LABELS = {
