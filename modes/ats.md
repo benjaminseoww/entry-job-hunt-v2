@@ -6,7 +6,9 @@ career-ops already *generates* ATS-optimized CVs (see `modes/pdf.md`) and guards
 
 `verify-ats.mjs` is a **deterministic, read-only** checker (no LLM, no network, no writes). It reads a generated CV — HTML from `pdf` mode (before PDF rendering), tailored markdown, or a Word file from `docx` mode — and reports an **ATS-friendliness score (0-100 + letter grade)** plus a list of concrete, fixable issues. Think `verify-cv-facts.mjs`, but for structure and parseability instead of facts. It is **advisory**: it is not wired into the `pdf` or `docx` pipeline and never blocks CV generation.
 
-HTML runs every check. `.md` and `.docx` run the **text-level checks only** (sections, contact info, keywords, length). Layout checks that need HTML (tables/columns, images, fonts, charset, hidden text) are listed as **n/a for Word** (or markdown) and do not fail the file.
+HTML runs every check. `.md` / `.markdown` / `.txt` run the **text-level checks only** (sections, contact info, keywords, length). Layout checks that need HTML (tables/columns, images, fonts, charset, hidden text) are listed as **n/a for markdown** (or plain text), **awarded in full** (50 of 100 points), and do not fail the file. A Word/markdown score is therefore **not comparable** with an HTML score — the same number does not mean the same checks ran.
+
+`.docx` scores those text-level checks on the **document body** (headers, footers, and notes are ignored for contact and headings) plus cheap XML checks for tables, text boxes, multi-column sections, drawings/pictures, and hidden text (`w:vanish` / white / tiny font). Fonts and charset stay **n/a for Word** and are still awarded in full.
 
 The mode has **two stages**, because ATS parseability is decided in two places:
 
@@ -20,7 +22,7 @@ The mode has **two stages**, because ATS parseability is decided in two places:
 ## Inputs
 
 - For the payload stage: a `build-cv-html.mjs` render payload (the compact JSON the `pdf` mode writes — see `modes/pdf.md` § "JSON Input Schema"). Word CVs have no HTML payload; skip this stage for `.docx`.
-- For the score stage: a generated CV HTML file (e.g. `output/cv-{candidate}-{company}.html`), a tailored markdown file (e.g. `output/cv-{candidate}-{company}.md`), or a Word file (e.g. `output/cv-{candidate}-{company}.docx`). `.docx` is read through `lib/docx-text.mjs`.
+- For the score stage: a generated CV HTML file (e.g. `output/cv-{candidate}-{company}.html`), a tailored markdown file (e.g. `output/cv-{candidate}-{company}.md` or `.markdown`), a plain-text file (`.txt`), or a Word file (e.g. `output/cv-{candidate}-{company}.docx`). `.docx` is read through `lib/docx-text.mjs`. `.pdf`, `.doc`, and `.rtf` are refused — score the `.html` / `.md` / `.docx` instead.
 - Optional target keywords (`--keywords` / `--role`) for an advisory keyword-coverage read.
 
 ## Payload preparation (`ats-payload.mjs`)
@@ -70,6 +72,7 @@ The payload is shape-checked before anything is transformed or reported, and a s
 ```bash
 node verify-ats.mjs output/cv-jane-smith-acme.html
 node verify-ats.mjs output/cv-jane-smith-acme.md
+node verify-ats.mjs output/cv-jane-smith-acme.markdown
 node verify-ats.mjs output/cv-jane-smith-acme.docx --json
 node verify-ats.mjs output/cv-jane-smith-acme.html --keywords "python,kubernetes,rag"
 node verify-ats.mjs output/cv-jane-smith-acme.html --role "Senior Backend Engineer"
@@ -95,7 +98,7 @@ Each check contributes a fixed weight; every deduction attaches a `critical`, `w
 |--------|-------|----------------|
 | 15 | Real, selectable text present (>= 300 chars) | An image-only / rasterized CV has no text layer for the ATS to read. |
 | 20 | Standard section headings (Experience, Education, Skills required; Summary/Projects/Certifications bonus) | ATS parsers key off recognizable headings to segment the CV. |
-| 15 | Contact email reachable in the body (phone presence checked, but not its placement) | ATS routinely drop semantic `<header>`/`<footer>` regions; the email must sit in the main body. (A plain `<div class="header">` title block, as in the shipped template, is body content and is not flagged.) |
+| 15 | Contact email reachable in the body (phone presence checked, but not its placement) | ATS routinely drop semantic `<header>`/`<footer>` regions and Word headers/footers; the email must sit in the main body. (A plain `<div class="header">` title block, as in the shipped template, is body content and is not flagged. An email that lives only in `word/header*.xml` / `word/footer*.xml` is a critical, worded for Word.) |
 | 20 | Single-column, no layout tables / multi-column CSS | Tables and columns scramble the reading order extractors follow. |
 | 10 | No CV text baked into images | ATS cannot read text inside images. |
 | 10 | Standard, embeddable fonts | Exotic fonts can extract as garbled or missing glyphs. |
@@ -106,7 +109,9 @@ Grade: `A` >= 90, `B` >= 80, `C` >= 70, `D` >= 60, else `F`.
 
 A single `display:table` element (as used by the shipped template's certifications block) does **not** reorder content and is intentionally not flagged — only real `<table>` elements and multi-column CSS are.
 
-On `.md` and `.docx`, the last five rows (layout, images, fonts, charset, hidden text) are **n/a**. They still appear in the JSON as `naChecks` (and as `info` issues whose message contains `n/a for Word` or `n/a for markdown`) so a score is never silent about what was skipped. The HTML path is unchanged.
+On `.md` / `.markdown` / `.txt`, the last five rows (layout, images, fonts, charset, hidden text) are **n/a** and **awarded in full** — half the 100-point score — so a markdown file is never failed for missing CSS. They still appear in the JSON as `naChecks` (and as `info` issues whose message contains `n/a for markdown` or `n/a for plain text`). A Word/markdown score is not comparable with an HTML score.
+
+On `.docx`, layout, images, and hidden text **are scored** from the XML (`w:tbl`, text boxes, `w:cols`, `w:drawing`/`w:pict`, `w:vanish` / white / tiny font). Fonts and charset stay **n/a for Word** and are awarded in full. The HTML path is unchanged.
 
 ## Keyword coverage (opt-in, advisory)
 

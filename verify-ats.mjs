@@ -7,12 +7,14 @@
  * guards *whether an ATS can parse it at all*. No LLM, no network, no writes — it
  * reads one generated CV and reports a 0-100 structural score, a letter grade,
  * and a list of concrete, fixable issues. HTML (the output of `pdf` mode, before
- * PDF rendering) runs every check. Markdown and Word (`.md` / `.docx`) run the
- * text-level checks only — sections, contact, keywords, length — and list the
- * layout checks that need HTML as "n/a for Word" (or markdown).
+ * PDF rendering) runs every check. Markdown (`.md` / `.markdown` / `.txt`) runs
+ * the text-level checks only and lists layout checks as n/a. Word (`.docx`)
+ * runs those text-level checks on the document body, plus XML checks for
+ * tables, text boxes, columns, images, and hidden text; fonts and charset
+ * stay n/a.
  *
  * Usage:
- *   node verify-ats.mjs <generated-cv.html|md|docx>
+ *   node verify-ats.mjs <generated-cv.html|md|markdown|txt|docx>
  *   node verify-ats.mjs <generated-cv.html> --keywords "python,kubernetes,rag"
  *   node verify-ats.mjs <generated-cv.docx> --json
  *   node verify-ats.mjs <generated-cv.html> --role "Senior Backend Engineer"
@@ -30,7 +32,7 @@ import { fileURLToPath } from 'url';
 import { isMainModule } from './lib/is-main-module.mjs';
 import { asciiFold } from './lib/ascii-fold.mjs';
 import { headingText, normalizePandocLine } from './lib/cv-markdown.mjs';
-import { extractDocxText, MAX_DOCX_BYTES } from './lib/docx-text.mjs';
+import { extractDocxParts, MAX_DOCX_BYTES } from './lib/docx-text.mjs';
 
 const DEFAULT_MIN_SCORE = 70;
 
@@ -47,9 +49,12 @@ const WEIGHTS = {
   hidden: 5,       // no hidden text / keyword stuffing
 };
 
-// Checks that inspect HTML/CSS. Markdown and Word run the text-level checks
-// only (length, sections, contact, keywords) and list these as n/a.
+// Checks that inspect HTML/CSS. Markdown lists all of these as n/a. Word
+// scores layout/images/hidden from XML and lists only fonts + charset as n/a.
 const HTML_ONLY_CHECKS = ['layout', 'images', 'fonts', 'charset', 'hidden'];
+const DOCX_NA_CHECKS = ['fonts', 'charset'];
+const REFUSED_ATS_EXTS = new Set(['.pdf', '.doc', '.rtf']);
+const PLAIN_ATS_EXTS = new Set(['.md', '.markdown', '.txt']);
 
 const TEXT_MIN_CHARS = 300;      // below this, the CV likely has no real text layer
 const TEXT_LOW_WITH_IMG = 800;   // images + this little text ⇒ text probably baked in
@@ -750,9 +755,9 @@ function auditAts(html, opts = {}) {
 }
 
 /**
- * A Word display heading: the Garamond template uppercases section titles on
- * the page. Body copy stays sentence case, so an all-caps Latin line is a
- * heading rather than a sentence that happens to contain "experience".
+ * A Word display heading used only as a fallback when XML pPr did not flag
+ * the paragraph. Unicode uppercase (`\p{Lu}`) covers Cyrillic; caseless
+ * scripts (CJK, etc.) accept a short line that is entirely a section term.
  * @param {string} line
  * @returns {boolean}
  */
@@ -760,20 +765,60 @@ function isWordDisplayHeading(line) {
   if (line.length > 80 || /[.!?]$/.test(line)) return false;
   const letters = line.match(/\p{L}/gu);
   if (!letters || letters.length < 3) return false;
-  if (line !== line.toUpperCase()) return false;
-  // Require a real uppercase/lowercase distinction so CJK body lines (no case)
-  // are not treated as headings.
-  return /[A-Z]/.test(line);
+  if (/\p{Lu}/u.test(line) && line === line.toUpperCase() && line !== line.toLowerCase()) {
+    return true;
+  }
+  if (line.length <= 40 && !/\p{Lu}/u.test(line) && !/\p{Ll}/u.test(line)) {
+    return isEntirelySectionHeading(line);
+  }
+  return false;
 }
 
 /**
- * Section headings from markdown ATX lines and Word's uppercase display titles.
+ * True when the whole line is a required or bonus section heading, not a
+ * sentence that merely contains the term.
+ * @param {string} line
+ * @returns {boolean}
+ */
+function isEntirelySectionHeading(line) {
+  const candidates = [line.toLowerCase(), asciiFold(line).toLowerCase()];
+  const strip = (s, re) => {
+    const m = s.match(re);
+    if (!m) return null;
+    return (s.slice(0, m.index) + s.slice(m.index + m[0].length)).replace(/[\s:：\-–—|/·•.,]/g, '');
+  };
+  for (const s of REQUIRED_SECTIONS) {
+    for (const c of candidates) {
+      const remainder = strip(c, s.re);
+      if (remainder === '') return true;
+    }
+  }
+  for (const re of BONUS_SECTION_RES) {
+    for (const c of candidates) {
+      const remainder = strip(c, re);
+      if (remainder === '') return true;
+    }
+  }
+  return false;
+}
+
+function foldHeadingList(headings) {
+  return headings
+    .flatMap(s => [s.toLowerCase(), asciiFold(s).toLowerCase()])
+    .filter(Boolean);
+}
+
+/**
+ * Section headings from markdown ATX lines. The Word uppercase fallback runs
+ * only when `opts.kind === 'docx'` (markdown already has ATX headings).
  * Same ASCII-fold pair extractHeadings emits, so applySectionScore is shared.
  * @param {string} text
+ * @param {{kind?: 'docx'|'md'|'txt'}} [opts]
  * @returns {string[]}
  */
-function extractPlainHeadings(text) {
+function extractPlainHeadings(text, opts = {}) {
   const out = [];
+  const allowCaps = opts.kind === 'docx';
   for (const raw of String(text).split(/\r?\n/)) {
     const trimmed = raw.trim();
     if (!trimmed) continue;
@@ -787,25 +832,41 @@ function extractPlainHeadings(text) {
       out.push(heading);
       continue;
     }
-    if (isWordDisplayHeading(trimmed)) out.push(trimmed);
+    if (allowCaps && isWordDisplayHeading(trimmed)) out.push(trimmed);
   }
-  return out
-    .flatMap(s => [s.toLowerCase(), asciiFold(s).toLowerCase()])
-    .filter(Boolean);
+  return foldHeadingList(out);
+}
+
+function naReason(kind) {
+  if (kind === 'md') return 'n/a for markdown';
+  if (kind === 'txt') return 'n/a for plain text';
+  return 'n/a for Word';
+}
+
+function awardNaChecks(score, add, checks, reason) {
+  const naChecks = [];
+  let next = score;
+  for (const check of checks) {
+    next += WEIGHTS[check];
+    add('info', `${check}: ${reason}`);
+    naChecks.push(check);
+  }
+  return { score: next, naChecks };
 }
 
 /**
- * Score a plain-text CV (markdown or Word-extracted text) for ATS-friendliness.
- * Text-level checks only; HTML layout checks are listed as n/a and awarded in
- * full so a well-formed Word/markdown CV is not failed for missing CSS.
+ * Score a plain-text CV (markdown / .txt) for ATS-friendliness. Text-level
+ * checks only; HTML layout checks are listed as n/a and awarded in full so a
+ * well-formed markdown CV is not failed for missing CSS. Word uses
+ * auditAtsDocx instead.
  *
  * @param {string} text
- * @param {{keywords?: string|string[], role?: string, kind?: 'docx'|'md'}} [opts]
+ * @param {{keywords?: string|string[], role?: string, kind?: 'md'|'txt'}} [opts]
  * @returns {{score:number, grade:string, issues:{severity:string,message:string}[], keywordCoverage:null|{total:number,found:number,percent:number,missing:string[]}, naChecks:string[]}}
  */
 function auditAtsPlain(text, opts = {}) {
-  const kind = opts.kind === 'md' ? 'md' : 'docx';
-  const reason = kind === 'md' ? 'n/a for markdown' : 'n/a for Word';
+  const kind = opts.kind === 'txt' ? 'txt' : 'md';
+  const reason = naReason(kind);
   const issues = [];
   const add = (severity, message) => issues.push({ severity, message });
   let score = 0;
@@ -816,7 +877,7 @@ function auditAtsPlain(text, opts = {}) {
     add('critical', `Very little selectable text (${text.length} chars, expected >= ${TEXT_MIN_CHARS}). The CV may be image-based or rasterized; ATS parsers need a real text layer.`);
   }
 
-  const headingBlob = extractPlainHeadings(text).join(' | ');
+  const headingBlob = extractPlainHeadings(text, { kind }).join(' | ');
   score += applySectionScore(headingBlob, add);
 
   const hasEmail = EMAIL_RE.test(text);
@@ -829,43 +890,127 @@ function auditAtsPlain(text, opts = {}) {
   if (hasPhone) score += 5;
   else add('info', 'No phone number detected (optional, but many ATS intake forms expect one).');
 
-  const naChecks = [];
-  for (const check of HTML_ONLY_CHECKS) {
-    score += WEIGHTS[check];
-    add('info', `${check}: ${reason}`);
-    naChecks.push(check);
+  const awarded = awardNaChecks(score, add, HTML_ONLY_CHECKS, reason);
+  const keywordCoverage = keywordCoverageFor(text, opts);
+  score = Math.max(0, Math.min(100, Math.round(awarded.score)));
+  return { score, grade: gradeFor(score), issues, keywordCoverage, naChecks: awarded.naChecks };
+}
+
+/**
+ * Score a Word CV. Contact and headings are read from the document body;
+ * headers/footers/notes are ignored for those checks. Layout, images, and
+ * hidden text come from the XML. Fonts and charset stay n/a with credit.
+ *
+ * @param {ReturnType<typeof extractDocxParts>} parts
+ * @param {{keywords?: string|string[], role?: string}} [opts]
+ */
+function auditAtsDocx(parts, opts = {}) {
+  const issues = [];
+  const add = (severity, message) => issues.push({ severity, message });
+  let score = 0;
+  const bodyText = parts.body || '';
+  const visible = parts.bodyVisible || '';
+
+  if (bodyText.length >= TEXT_MIN_CHARS) {
+    score += WEIGHTS.text;
+  } else {
+    add('critical', `Very little selectable text (${bodyText.length} chars, expected >= ${TEXT_MIN_CHARS}). The CV may be image-based or rasterized; ATS parsers need a real text layer.`);
   }
 
-  const keywordCoverage = keywordCoverageFor(text, opts);
+  const xmlHeadings = parts.headings || [];
+  const fallback = extractPlainHeadings(visible, { kind: 'docx' });
+  const headingBlob = [...foldHeadingList(xmlHeadings), ...fallback].join(' | ');
+  score += applySectionScore(headingBlob, add);
+
+  const emailInBody = EMAIL_RE.test(bodyText);
+  const emailElsewhere = EMAIL_RE.test(parts.headerFooter || '') || EMAIL_RE.test(parts.notes || '');
+  const hasPhone = hasPhoneNumber(bodyText)
+    || hasPhoneNumber(parts.headerFooter || '')
+    || hasPhoneNumber(parts.notes || '');
+  if (emailInBody) {
+    score += 10;
+  } else if (emailElsewhere) {
+    add('critical', 'Contact email appears only inside the Word header/footer; ATS routinely drop those regions, so the address is effectively unreachable. Move contact details into the main document body.');
+  } else {
+    add('critical', 'No email address found. ATS and recruiters need a parseable contact email in the body of the CV.');
+  }
+  if (hasPhone) score += 5;
+  else add('info', 'No phone number detected (optional, but many ATS intake forms expect one).');
+
+  let layout = WEIGHTS.layout;
+  if (parts.tables > 0) {
+    layout -= 12;
+    add('critical', `Found ${parts.tables} Word table(s) (<w:tbl>). Table-based layouts scramble the reading order ATS extractors follow; use a single-column flow.`);
+  }
+  if (parts.textBoxes > 0) {
+    layout -= 8;
+    add('warning', `Found ${parts.textBoxes} text box(es). Text boxes sit outside the main story and ATS extractors often skip or reorder them.`);
+  }
+  if (parts.multiColumn) {
+    layout -= 8;
+    add('warning', 'Word multi-column section detected (w:cols num>1). Single-column content parses most reliably.');
+  }
+  score += Math.max(0, layout);
+
+  let imageScore = WEIGHTS.images;
+  if (parts.images > 0 && visible.length < TEXT_LOW_WITH_IMG) {
+    imageScore = 0;
+    add('critical', `Found ${parts.images} Word drawing/pict image(s) with little surrounding text (${visible.length} chars). Text baked into images is invisible to ATS.`);
+  } else if (parts.images > 0) {
+    imageScore -= 5;
+    add('warning', `Found ${parts.images} Word drawing/pict image(s). Ensure no CV text (skills, headings, contact) is baked into images — ATS cannot read image text.`);
+  }
+  score += Math.max(0, imageScore);
+
+  const awarded = awardNaChecks(score, add, DOCX_NA_CHECKS, naReason('docx'));
+  score = awarded.score;
+
+  if (!parts.hiddenSignals.length) {
+    score += WEIGHTS.hidden;
+  } else {
+    add('warning', `Possible hidden text / keyword stuffing (${parts.hiddenSignals.join(', ')}). Hidden keywords are penalised by modern ATS and by recruiters who read the extracted text.`);
+  }
+
+  const keywordCoverage = keywordCoverageFor(visible, opts);
   score = Math.max(0, Math.min(100, Math.round(score)));
-  return { score, grade: gradeFor(score), issues, keywordCoverage, naChecks };
+  return { score, grade: gradeFor(score), issues, keywordCoverage, naChecks: awarded.naChecks };
+}
+
+function readDocxForAts(targetPath) {
+  const { size } = statSync(targetPath);
+  if (size > MAX_DOCX_BYTES) throw new Error(`Corrupt .docx: file exceeds ${MAX_DOCX_BYTES} bytes`);
+  try {
+    const parts = extractDocxParts(readFileSync(targetPath));
+    const all = `${parts.body}\n${parts.headerFooter}\n${parts.notes}`;
+    if (!all.replace(/\s+/g, '')) throw new Error('no readable text in .docx');
+    return parts;
+  } catch (err) {
+    const msg = String(err?.message || err);
+    if (msg.startsWith('Corrupt .docx:') || msg === 'no readable text in .docx') throw err;
+    throw new Error(`Corrupt .docx: ${msg}`);
+  }
 }
 
 /**
  * Score a generated CV file. `.docx` is unzipped through lib/docx-text.mjs;
- * `.md` is read as UTF-8; everything else is HTML (the historical path).
+ * `.md` / `.markdown` / `.txt` are read as UTF-8; `.pdf` / `.doc` / `.rtf`
+ * are refused; everything else is HTML (the historical path).
  *
  * @param {string} targetPath
  * @param {{keywords?: string|string[], role?: string}} [opts]
- * @returns {ReturnType<typeof auditAts> | ReturnType<typeof auditAtsPlain>}
+ * @returns {ReturnType<typeof auditAts> | ReturnType<typeof auditAtsPlain> | ReturnType<typeof auditAtsDocx>}
  */
 function auditAtsFromPath(targetPath, opts = {}) {
   const ext = extname(targetPath).toLowerCase();
-  if (ext === '.docx') {
-    const { size } = statSync(targetPath);
-    if (size > MAX_DOCX_BYTES) throw new Error(`Corrupt .docx: file exceeds ${MAX_DOCX_BYTES} bytes`);
-    let text;
-    try {
-      text = extractDocxText(readFileSync(targetPath));
-    } catch (err) {
-      const msg = String(err?.message || err);
-      if (msg.startsWith('Corrupt .docx:') || msg === 'no readable text in .docx') throw err;
-      throw new Error(`Corrupt .docx: ${msg}`);
-    }
-    return auditAtsPlain(text, { ...opts, kind: 'docx' });
+  if (REFUSED_ATS_EXTS.has(ext)) {
+    throw new Error(`verify-ats.mjs does not score ${ext} files; score the .html/.md/.docx instead`);
   }
-  if (ext === '.md' || ext === '.markdown') {
-    return auditAtsPlain(readFileSync(targetPath, 'utf-8'), { ...opts, kind: 'md' });
+  if (ext === '.docx') {
+    return auditAtsDocx(readDocxForAts(targetPath), opts);
+  }
+  if (PLAIN_ATS_EXTS.has(ext)) {
+    const kind = ext === '.txt' ? 'txt' : 'md';
+    return auditAtsPlain(readFileSync(targetPath, 'utf-8'), { ...opts, kind });
   }
   return auditAts(readFileSync(targetPath, 'utf-8'), opts);
 }
@@ -893,6 +1038,7 @@ export {
   normalizeKeywords,
   DEFAULT_MIN_SCORE,
   HTML_ONLY_CHECKS,
+  DOCX_NA_CHECKS,
 };
 
 // ── Self-test ────────────────────────────────────────────────────────
@@ -1457,13 +1603,16 @@ if (isMainModule(import.meta.url)) {
 
     const helpRequested = args.includes('--help') || args.includes('-h');
     if (!targetArg || helpRequested) {
-      console.log(`Usage: node verify-ats.mjs <generated-cv.html|md|docx> [--keywords "a,b,c"] [--role "..."] [--min-score N] [--json]
+      console.log(`Usage: node verify-ats.mjs <generated-cv.html|md|markdown|txt|docx> [--keywords "a,b,c"] [--role "..."] [--min-score N] [--json]
 
 Scores a generated CV for ATS parseability (0-100 + letter grade) and lists
-concrete, fixable issues. HTML runs every check. Markdown and Word (.md / .docx)
-run the text-level checks only; layout checks that need HTML are listed as
-"n/a for Word" (or markdown). Deterministic, read-only. Exits 0 when score >=
---min-score (default ${DEFAULT_MIN_SCORE}) and no critical issue is present, else 1.
+concrete, fixable issues. HTML runs every check. Markdown (.md / .markdown) and
+plain text (.txt) run the text-level checks only; layout checks that need HTML
+are listed as n/a and awarded in full. Word (.docx) scores body text plus XML
+layout/images/hidden checks; fonts and charset stay n/a. .pdf / .doc / .rtf
+are refused — score the .html/.md/.docx instead. Deterministic, read-only.
+Exits 0 when score >= --min-score (default ${DEFAULT_MIN_SCORE}) and no critical
+issue is present, else 1.
 
 Keyword coverage (--keywords / --role) is advisory and never changes the score.`);
       // An explicit --help is a success; a missing target is a usage error.

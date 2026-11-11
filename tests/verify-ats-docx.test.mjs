@@ -12,8 +12,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateDocx } from '../generate-docx.mjs';
+import { extractDocxParts, extractDocxText } from '../lib/docx-text.mjs';
+import { readZip, writeZip } from '../lib/docx-zip.mjs';
 import {
   HTML_ONLY_CHECKS,
+  DOCX_NA_CHECKS,
   auditAts,
   auditAtsFromPath,
   extractPlainHeadings,
@@ -118,18 +121,21 @@ function parseJson(proc) {
 }
 
 test('markdown ATX headings and Word uppercase titles are both recognized', () => {
-  const mdHeadings = extractPlainHeadings(CLEAN_RESUME);
+  const mdHeadings = extractPlainHeadings(CLEAN_RESUME, { kind: 'md' });
   assert.ok(mdHeadings.some((h) => h.includes('work experience')));
   assert.ok(mdHeadings.some((h) => h.includes('education')));
   assert.ok(mdHeadings.some((h) => h.includes('skills')));
 
-  const wordHeadings = extractPlainHeadings('JANE SMITH\nWORK EXPERIENCE\nStaff Engineer\nEDUCATION\nSKILLS\n');
+  const wordHeadings = extractPlainHeadings('JANE SMITH\nWORK EXPERIENCE\nStaff Engineer\nEDUCATION\nSKILLS\n', { kind: 'docx' });
   assert.ok(wordHeadings.some((h) => h.includes('work experience')));
   assert.ok(wordHeadings.some((h) => h.includes('education')));
   assert.ok(wordHeadings.some((h) => h.includes('skills')));
   // Sentence-case body copy containing "experience" is not a heading.
-  const body = extractPlainHeadings('Senior engineer with a decade of experience designing systems.\n');
+  const body = extractPlainHeadings('Senior engineer with a decade of experience designing systems.\n', { kind: 'docx' });
   assert.equal(body.some((h) => h.includes('experience')), false);
+  // Markdown has ATX headings; all-caps body lines are not headings.
+  const mdCaps = extractPlainHeadings('WORK EXPERIENCE\nStaff Engineer\nEDUCATION\nSKILLS\n', { kind: 'md' });
+  assert.equal(mdCaps.some((h) => h.includes('work experience')), false);
 });
 
 test('node verify-ats.mjs on a .md fixture scores text checks and lists n/a checks', () => {
@@ -160,11 +166,18 @@ test('node verify-ats.mjs on a .docx fixture returns a score that lists n/a for 
     assert.equal(proc.status, 0, proc.stderr || proc.stdout);
     assert.equal(json.pass, true);
     assert.ok(json.score >= 80, `expected a high Word score, got ${json.score}`);
-    assert.deepEqual(json.naChecks, HTML_ONLY_CHECKS);
-    for (const check of HTML_ONLY_CHECKS) {
+    assert.deepEqual(json.naChecks, DOCX_NA_CHECKS);
+    for (const check of DOCX_NA_CHECKS) {
       assert.ok(
         json.issues.some((i) => i.severity === 'info' && i.message === `${check}: n/a for Word`),
         `missing n/a issue for ${check}`,
+      );
+    }
+    for (const check of ['layout', 'images', 'hidden']) {
+      assert.equal(
+        json.issues.some((i) => i.message === `${check}: n/a for Word`),
+        false,
+        `${check} should be scored on Word, not n/a`,
       );
     }
     assert.equal(json.keywordCoverage.total, 3);
@@ -239,7 +252,7 @@ test('auditAtsFromPath reads .docx through lib/docx-text.mjs, not as zip bytes',
     assert.ok(!isPass(asHtml, DEFAULT_MIN_SCORE), 'zip bytes must not look like a passing HTML CV');
     const fromPath = auditAtsFromPath(docx);
     assert.equal(isPass(fromPath, DEFAULT_MIN_SCORE), true);
-    assert.deepEqual(fromPath.naChecks, HTML_ONLY_CHECKS);
+    assert.deepEqual(fromPath.naChecks, DOCX_NA_CHECKS);
   });
 });
 
@@ -249,4 +262,306 @@ test('modes/ats.md documents the Word text-level path', () => {
   assert.match(mode, /n\/a for Word/);
   assert.match(mode, /lib\/docx-text\.mjs/);
   assert.match(mode, /The HTML path is unchanged/);
+  assert.match(mode, /awarded in full/);
+  assert.match(mode, /not comparable/);
+  assert.match(mode, /\.markdown/);
+  const docxMode = readFileSync(join(ROOT, 'modes', 'docx.md'), 'utf-8');
+  assert.match(docxMode, /verify-ats\.mjs/);
+  assert.match(docxMode, /modes\/ats\.md/);
+});
+
+const RU_RESUME = `# CV -- Иван Петров
+
+**Email:** ivan@example.com
+**Phone:** +7 495 555 0100
+
+## Опыт работы
+
+### Яндекс -- Москва
+
+**Старший инженер**
+2020 – 2024
+
+- Разработал и поддерживал платформу платежей, сократив количество инцидентов и ускорив выпуск релизов в нескольких командах инженеров по всей компании.
+- Руководил командой из трёх инженеров, внедрил наблюдаемость и автоматические тесты для всех критичных сервисов платформы.
+
+## Образование
+
+### МГУ -- Москва
+
+**Бакалавр информатики**
+2018
+
+## Навыки
+
+- Python, Kubernetes, PostgreSQL, Kafka, распределённые системы
+`;
+
+const JA_RESUME = `# CV -- Иван Петров
+
+**Email:** ivan@example.com
+**Phone:** +7 495 555 0100
+
+## 職務経歴
+
+### Яндекс -- Москва
+
+**Старший инженер**
+2020 – 2024
+
+- Разработал и поддерживал платформу платежей, сократив количество инцидентов и ускорив выпуск релизов в нескольких командах инженеров по всей компании.
+- Руководил командой из трёх инженеров, внедрил наблюдаемость и автоматические тесты для всех критичных сервисов платформы.
+
+## 学歴
+
+### МГУ -- Москва
+
+**Бакалавр информатики**
+2018
+
+## スキル
+
+- Python, Kubernetes, PostgreSQL, Kafka, распределённые системы
+`;
+
+function rewriteDocx(buffer, mutators) {
+  const entries = [];
+  for (const [name, data] of readZip(buffer)) {
+    if (mutators[name]) entries.push({ name, data: mutators[name](data.toString('utf8')) });
+    else entries.push({ name, data });
+  }
+  return writeZip(entries);
+}
+
+function titleCaseHeadings(xml) {
+  let out = xml;
+  for (const h of ['PROFESSIONAL SUMMARY', 'WORK EXPERIENCE', 'EDUCATION', 'SKILLS', 'PROJECTS', 'CERTIFICATIONS']) {
+    out = out.replace(`>${h}<`, `>${h.replace(/\w+/g, (w) => w[0] + w.slice(1).toLowerCase())}<`);
+  }
+  return out;
+}
+
+function wrapBodyInTable(xml) {
+  const start = xml.indexOf('<w:body>') + 8;
+  const sect = xml.indexOf('<w:sectPr');
+  const end = sect >= 0 ? sect : xml.indexOf('</w:body>');
+  const body = xml.slice(start, end);
+  const ps = body.match(/<w:p>[\s\S]*?<\/w:p>/g) || [];
+  const h = Math.floor(ps.length / 2);
+  const table = `<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/></w:tblPr><w:tblGrid><w:gridCol w:w="4000"/><w:gridCol w:w="6000"/></w:tblGrid><w:tr><w:tc>${ps.slice(h).join('')}</w:tc><w:tc>${ps.slice(0, h).join('')}</w:tc></w:tr></w:tbl><w:p/>`;
+  return xml.slice(0, start) + table + xml.slice(end);
+}
+
+function moveEmailToFooter(docXml, footerXml, email) {
+  const paras = docXml.match(/<w:p>[\s\S]*?<\/w:p>/g) || [];
+  const contact = paras.find((p) => p.includes(email));
+  assert.ok(contact, 'generated docx must contain a contact paragraph');
+  const nextDoc = docXml.replace(contact, '');
+  const nextFooter = /<w:p>[\s\S]*?<\/w:p>/.test(footerXml)
+    ? footerXml.replace(/<w:p>[\s\S]*?<\/w:p>/, contact)
+    : footerXml.replace('</w:ftr>', `${contact}</w:ftr>`);
+  return { doc: nextDoc, footer: nextFooter };
+}
+
+function injectBeforeSectPr(xml, snippet) {
+  if (xml.includes('<w:sectPr')) return xml.replace('<w:sectPr', `${snippet}<w:sectPr`);
+  return xml.replace('</w:body>', `${snippet}</w:body>`);
+}
+
+function missingSectionIssue(json) {
+  return json.issues.some((i) => /missing standard section/i.test(i.message));
+}
+
+test('Russian and Japanese Word CVs from generateDocx keep their section headings', () => {
+  withDir((dir) => {
+    for (const [name, markdown] of [['ru', RU_RESUME], ['ja', JA_RESUME]]) {
+      const { md, docx } = writeDocx(dir, name, markdown);
+      const mdProc = runCli(md, ['--json']);
+      const docxProc = runCli(docx, ['--json']);
+      const mdJson = parseJson(mdProc);
+      const docxJson = parseJson(docxProc);
+      assert.equal(mdProc.status, 0, mdProc.stderr || mdProc.stdout);
+      assert.equal(docxProc.status, 0, docxProc.stderr || docxProc.stdout);
+      assert.equal(mdJson.pass, true, `${name}.md should pass`);
+      assert.equal(missingSectionIssue(mdJson), false, `${name}.md must not miss sections`);
+      assert.equal(docxJson.pass, true, `${name}.docx should pass: ${JSON.stringify(docxJson.issues)}`);
+      assert.equal(missingSectionIssue(docxJson), false, `${name}.docx must not miss sections: ${JSON.stringify(docxJson.issues)}`);
+    }
+  });
+});
+
+test('Title Case and w:caps Word headings still score as sections', () => {
+  withDir((dir) => {
+    const { docx } = writeDocx(dir, 'cv-headings');
+    const src = readFileSync(docx);
+    const titlecase = join(dir, 'v-titlecase.docx');
+    const wcaps = join(dir, 'v-wcaps.docx');
+    writeFileSync(titlecase, rewriteDocx(src, { 'word/document.xml': titleCaseHeadings }));
+    writeFileSync(wcaps, rewriteDocx(src, {
+      'word/document.xml': (xml) => titleCaseHeadings(xml).replaceAll('<w:b/>', '<w:b/><w:caps/>'),
+    }));
+    for (const file of [titlecase, wcaps]) {
+      const proc = runCli(file, ['--json']);
+      const json = parseJson(proc);
+      assert.equal(proc.status, 0, `${file}: ${proc.stderr || proc.stdout}`);
+      assert.equal(json.pass, true);
+      assert.equal(missingSectionIssue(json), false, `${file} missing sections: ${JSON.stringify(json.issues)}`);
+    }
+  });
+});
+
+test('Word Heading1 / Title / outlineLvl XML styles are headings without relying on case', () => {
+  withDir((dir) => {
+    const inner = [
+      '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Work Experience</w:t></w:r></w:p>',
+      '<w:p><w:pPr><w:outlineLvl w:val="1"/></w:pPr><w:r><w:t>Education</w:t></w:r></w:p>',
+      '<w:p><w:pPr><w:pStyle w:val="Title"/></w:pPr><w:r><w:t>Skills</w:t></w:r></w:p>',
+      `<w:p><w:r><w:t>jane@example.com ${'selectable text '.repeat(30)}</w:t></w:r></w:p>`,
+    ].join('');
+    const xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${inner}</w:body></w:document>`;
+    const path = join(dir, 'styled.docx');
+    writeFileSync(path, writeZip([{ name: 'word/document.xml', data: xml }]));
+    const parts = extractDocxParts(readFileSync(path));
+    assert.ok(parts.headings.some((h) => /work experience/i.test(h)));
+    assert.ok(parts.headings.some((h) => /education/i.test(h)));
+    assert.ok(parts.headings.some((h) => /skills/i.test(h)));
+    const json = auditAtsFromPath(path);
+    assert.equal(missingSectionIssue(json), false, JSON.stringify(json.issues));
+  });
+});
+
+test('email only in the Word footer is a Word-worded critical', () => {
+  withDir((dir) => {
+    const { docx } = writeDocx(dir, 'cv-footer');
+    const src = readFileSync(docx);
+    const moved = rewriteDocx(src, {
+      'word/document.xml': (xml) => {
+        const footer = readZip(src).get('word/footer1.xml').toString('utf8');
+        return moveEmailToFooter(xml, footer, 'jane@example.com').doc;
+      },
+      'word/footer1.xml': (xml) => {
+        const doc = readZip(src).get('word/document.xml').toString('utf8');
+        return moveEmailToFooter(doc, xml, 'jane@example.com').footer;
+      },
+    });
+    const path = join(dir, 'v-contact-footer.docx');
+    writeFileSync(path, moved);
+    const parts = extractDocxParts(readFileSync(path));
+    assert.equal(parts.body.includes('jane@example.com'), false);
+    assert.equal(parts.headerFooter.includes('jane@example.com'), true);
+    const proc = runCli(path, ['--json']);
+    const json = parseJson(proc);
+    assert.equal(proc.status, 1);
+    assert.equal(json.pass, false);
+    assert.ok(json.issues.some((i) => i.severity === 'critical' && /Word header\/footer/i.test(i.message)));
+  });
+});
+
+test('Word tables, vanished runs, and white/tiny text are scored (not n/a)', () => {
+  withDir((dir) => {
+    const { docx } = writeDocx(dir, 'cv-layout');
+    const src = readFileSync(docx);
+    const tablePath = join(dir, 'v-table.docx');
+    const vanishPath = join(dir, 'v-vanish.docx');
+    const whitePath = join(dir, 'v-white.docx');
+    writeFileSync(tablePath, rewriteDocx(src, { 'word/document.xml': wrapBodyInTable }));
+    writeFileSync(vanishPath, rewriteDocx(src, {
+      'word/document.xml': (xml) => injectBeforeSectPr(xml, '<w:p><w:r><w:rPr><w:vanish/></w:rPr><w:t>zzqrust zzqgolang terraform</w:t></w:r></w:p>'),
+    }));
+    writeFileSync(whitePath, rewriteDocx(src, {
+      'word/document.xml': (xml) => injectBeforeSectPr(xml, '<w:p><w:r><w:rPr><w:color w:val="FFFFFF"/><w:sz w:val="2"/></w:rPr><w:t>zzqrust zzqgolang terraform</w:t></w:r></w:p>'),
+    }));
+
+    const tableJson = parseJson(runCli(tablePath, ['--json']));
+    assert.equal(tableJson.pass, false);
+    assert.ok(tableJson.issues.some((i) => i.severity === 'critical' && /<w:tbl>|Word table/i.test(i.message)));
+
+    const vanishBuf = readFileSync(vanishPath);
+    assert.match(extractDocxText(vanishBuf), /zzqrust/);
+    const vanishParts = extractDocxParts(vanishBuf);
+    assert.equal(vanishParts.bodyVisible.includes('zzqrust'), false);
+    assert.ok(vanishParts.hiddenSignals.includes('w:vanish'));
+    const vanishJson = parseJson(runCli(vanishPath, ['--json', '--keywords', 'zzqrust,zzqgolang']));
+    assert.ok(vanishJson.issues.some((i) => /hidden text/i.test(i.message) && /w:vanish/.test(i.message)));
+    assert.equal(vanishJson.keywordCoverage.found, 0);
+    assert.deepEqual(vanishJson.keywordCoverage.missing, ['zzqrust', 'zzqgolang']);
+
+    const whiteJson = parseJson(runCli(whitePath, ['--json', '--keywords', 'zzqrust,zzqgolang']));
+    assert.ok(whiteJson.issues.some((i) => /hidden text/i.test(i.message)));
+    assert.equal(whiteJson.keywordCoverage.found, 0);
+  });
+});
+
+test('Word text boxes and multi-column sections are flagged under layout', () => {
+  withDir((dir) => {
+    const inner = [
+      '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Work Experience</w:t></w:r></w:p>',
+      '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Education</w:t></w:r></w:p>',
+      '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Skills</w:t></w:r></w:p>',
+      `<w:p><w:r><w:drawing><w:txbxContent><w:p><w:r><w:t>jane@example.com ${'selectable text '.repeat(30)}</w:t></w:r></w:p></w:txbxContent></w:drawing></w:r></w:p>`,
+      '<w:sectPr><w:cols w:num="2"/></w:sectPr>',
+    ].join('');
+    const xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${inner}</w:body></w:document>`;
+    const path = join(dir, 'v-box.docx');
+    writeFileSync(path, writeZip([{ name: 'word/document.xml', data: xml }]));
+    const parts = extractDocxParts(readFileSync(path));
+    assert.ok(parts.textBoxes >= 1);
+    assert.equal(parts.multiColumn, true);
+    assert.ok(parts.images >= 1);
+    const json = auditAtsFromPath(path);
+    assert.ok(json.issues.some((i) => /text box/i.test(i.message)));
+    assert.ok(json.issues.some((i) => /multi-column/i.test(i.message)));
+    assert.ok(json.issues.some((i) => /drawing\/pict/i.test(i.message)));
+  });
+});
+
+test('CLI refuses .pdf/.doc/.rtf and accepts .markdown / uppercase .DOCX', () => {
+  withDir((dir) => {
+    const { md, docx } = writeDocx(dir, 'cv-case');
+    const markdown = join(dir, 'cv-case.markdown');
+    writeFileSync(markdown, readFileSync(md, 'utf-8'));
+    const upper = join(dir, 'UPPER.DOCX');
+    writeFileSync(upper, readFileSync(docx));
+    const mdProc = runCli(markdown, ['--json']);
+    const mdJson = parseJson(mdProc);
+    assert.equal(mdProc.status, 0, mdProc.stderr || mdProc.stdout);
+    assert.deepEqual(mdJson.naChecks, HTML_ONLY_CHECKS);
+    const upperProc = runCli(upper, ['--json']);
+    const upperJson = parseJson(upperProc);
+    assert.equal(upperProc.status, 0, upperProc.stderr);
+    assert.deepEqual(upperJson.naChecks, DOCX_NA_CHECKS);
+
+    for (const ext of ['.pdf', '.doc', '.rtf']) {
+      const file = join(dir, `scan${ext}`);
+      writeFileSync(file, '%PDF-1.4 fake');
+      const proc = runCli(file, ['--json']);
+      assert.equal(proc.status, 1);
+      assert.match(proc.stderr, /score the \.html\/\.md\/\.docx instead/);
+      assert.equal(proc.stdout.trim(), '');
+    }
+  });
+});
+
+test('CLI reports Corrupt .docx on stderr for unreadable Word files, even with --json', () => {
+  withDir((dir) => {
+    const zero = join(dir, 'zero.docx');
+    const fake = join(dir, 'fake.docx');
+    const nodoc = join(dir, 'nodoc.docx');
+    const trunc = join(dir, 'trunc.docx');
+    writeFileSync(zero, '');
+    writeFileSync(fake, '<html>hi</html>\n');
+    writeFileSync(nodoc, writeZip([{
+      name: '[Content_Types].xml',
+      data: '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>',
+    }]));
+    const { docx } = writeDocx(dir, 'cv-trunc');
+    writeFileSync(trunc, readFileSync(docx).subarray(0, 80));
+
+    for (const file of [zero, fake, nodoc, trunc]) {
+      const proc = runCli(file, ['--json']);
+      assert.equal(proc.status, 1, file);
+      assert.match(proc.stderr, /Corrupt \.docx/);
+      assert.equal(proc.stdout.trim(), '');
+    }
+  });
 });

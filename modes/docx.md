@@ -27,6 +27,7 @@ Optional pass:
 - **`--hm-audit`:** `/career-ops docx --hm-audit` adds the hiring-manager audit at
   Step 19 — an adversarial read of the tailored CV by a separate, research-grounded
   reviewer before it becomes a Word file (`modes/pdf/hm-audit.md`). Off by default.
+- After the Word file exists, `node verify-ats.mjs output/cv-{candidate}-{report}-{company}-{YYYY-MM-DD}.docx --json` is an optional ATS parseability score (`modes/ats.md`). Advisory; it does not block generation.
 
 ## Pipeline
 
