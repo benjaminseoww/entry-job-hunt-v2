@@ -261,7 +261,10 @@ const COUNT_CLAIM_RE = new RegExp(
   // window. `(?:[\p{L}\p{N}]+-)*` lets the counted noun close a hyphenated
   // compound ("318 TryHackMe-Rooms"): German writes the modifier and the noun
   // as one hyphenated token, which a whitespace-only window never saw.
-  String.raw`(?<![A-Za-z]-)\b(\d[\d,.]*(?:[kKmMbB]\b|\s+(?:${SPELLED_MAGNITUDE_ALT})\b)?)\s*\+?\s*(?:\p{L}[\p{L}\p{M}-]*\s+){0,${MODIFIER_WINDOW}}?(?:[\p{L}\p{N}]+-)*(${METRIC_NOUNS.join('|')})(?![\p{L}\p{N}])`,
+  // An optional closer after the number lets "Led <team of 40> engineers"
+  // still read as 40 engineers. Only bracket/angle closers, not every
+  // non-alnum: `[^\p{L}\p{N}]*` would skip `50%` and bind 50 to a later noun.
+  String.raw`(?<![A-Za-z]-)\b(\d[\d,.]*(?:[kKmMbB]\b|\s+(?:${SPELLED_MAGNITUDE_ALT})\b)?)\s*\+?\s*(?:[>)\]}]\s*)?(?:\p{L}[\p{L}\p{M}-]*\s+){0,${MODIFIER_WINDOW}}?(?:[\p{L}\p{N}]+-)*(${METRIC_NOUNS.join('|')})(?![\p{L}\p{N}])`,
   'giu'
 );
 const NOUN_SYNONYMS = new Map([
@@ -421,6 +424,11 @@ export function isWordGeneratedPath(path) {
  * @param {string} path
  * @returns {string}
  */
+function looksLikeZipOrBinary(buf) {
+  if (buf.length >= 4 && buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04) return true;
+  return buf.includes(0);
+}
+
 export function readGeneratedText(path) {
   const ext = extname(path).toLowerCase();
   if (REFUSE_BINARY_EXTS.has(ext)) {
@@ -437,7 +445,11 @@ export function readGeneratedText(path) {
       throw new Error(`Corrupt .docx: ${msg}`);
     }
   }
-  return readFileSync(path, 'utf-8');
+  const buf = readFileSync(path);
+  if (looksLikeZipOrBinary(buf)) {
+    throw new Error('refusing a zip or binary file without a Word extension');
+  }
+  return buf.toString('utf-8');
 }
 
 // Unicode decimal-digit blocks, by the code point of their zero. Every claim
@@ -1805,7 +1817,7 @@ export function metricClaims(text, { keepPlanHorizons = false, format } = {}) {
 // Used solely to answer "were there count claims this gate could not read?",
 // never to build a claim: it has no lexicon, so it cannot say what was counted.
 const GENERIC_COUNT_RE = new RegExp(
-  String.raw`(?<![\p{L}\p{N}])(\d[\d,.]*)\s*\+?\s*(?:[\p{L}][\p{L}\p{M}-]*[\s]+){0,${MODIFIER_WINDOW}}([\p{L}][\p{L}\p{M}]{2,})`,
+  String.raw`(?<![\p{L}\p{N}])(\d[\d,.]*)[^\p{L}\p{N}]*(?:[\p{L}][\p{L}\p{M}-]*[\s]+){0,${MODIFIER_WINDOW}}([\p{L}][\p{L}\p{M}]{2,})`,
   'giu',
 );
 // A year is not a count. "Led the 2024 migration" is the shape above and none
@@ -2380,6 +2392,11 @@ function runSelfTest() {
   equal('and its 2-modifier paraphrase agrees', claimsOf('~5 Cloud Run deployments'), '5 deployments');
   // A number is a hard barrier for the chain, so two counts stay separate.
   equal('two counts in one sentence stay distinct', claimsOf('8 years supporting 40 engineers'), '40 engineers | 8 years');
+  equal('a closer after the count does not hide it',
+    [...metricClaims('Led <team of 40> engineers.', { format: 'text' })].sort().join(' | '),
+    '40 engineers');
+  equal('a percent sign is not a closer into a later noun',
+    claimsOf('I grew it 50%. I build ledger services.'), '50%');
 
   // A proposed plan horizon is not a claim about the past (#3655). Time units
   // belong in METRIC_NOUNS, so the stock cover-letter closing was extracted as a

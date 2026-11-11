@@ -31,7 +31,7 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 // to send.
 const PRODUCER_RE = /node (?:build-cv-html|build-cv-latex|patch-latex-content|generate-docx)\.mjs (?!--preview|--test)|Write to `output\/cv-/;
 // The gate itself, or a renderer that runs it before writing its output.
-const GATE_RE = /node (?:verify-cv-facts|generate-pdf|generate-latex)\.mjs/;
+const GATE_RE = /node (?:verify-cv-facts|generate-pdf|generate-latex|generate-docx)\.mjs/;
 // Renderers that run the gate in code. Asserted below, so this list cannot
 // claim a renderer gates when it does not.
 const GATED_RENDERERS = ['generate-pdf.mjs', 'generate-latex.mjs', 'generate-cover-letter.mjs'];
@@ -169,6 +169,56 @@ test('generate-latex names a --source file that does not exist', (t) => {
   assert.equal(result.report?.factCheck?.verdict, 'block', result.stdout + result.stderr);
   assert.match(result.report.factCheck.reason, /--source file not found: .*no-such\.tex/);
   assert.equal(result.report.compileError, undefined, 'compilation was attempted after a missing --source');
+});
+
+const docxMd = (bullet) => `# CV -- Jane Doe
+
+**Email:** jane@example.com
+
+## Experience
+
+### Acme Corp -- Remote
+
+**Senior Software Engineer**
+2019 – 2024
+
+- ${bullet}
+- Reduced latency by 15%.
+`;
+
+function runDocx(root, ...args) {
+  return spawnSync(process.execPath, [join(ROOT, 'generate-docx.mjs'), ...args], {
+    cwd: root,
+    encoding: 'utf-8',
+    timeout: 30_000,
+    env: { ...process.env, CAREER_OPS_ROOT: root, CAREER_OPS_DATA_DIR: '' },
+  });
+}
+
+test('generate-docx blocks an unsupported claim and does not write', (t) => {
+  const root = workspace();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const md = join(root, 'inflated.md');
+  const out = join(root, 'output', 'cv.docx');
+  writeFileSync(md, docxMd('Led a team of 40 engineers.'));
+  const result = runDocx(root, md, out, '--json');
+  assert.equal(result.status, 1, result.stderr);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.ok, false);
+  assert.match(parsed.error, /40 engineers/);
+  assert.equal(existsSync(out), false);
+});
+
+test('generate-docx --skip-fact-check writes an inflated document', (t) => {
+  const root = workspace();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const md = join(root, 'inflated.md');
+  const out = join(root, 'output', 'cv.docx');
+  writeFileSync(md, docxMd('Led a team of 40 engineers.'));
+  const result = runDocx(root, md, out, '--skip-fact-check', '--json');
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).ok, true);
+  assert.equal(existsSync(out), true);
 });
 
 test('generate-latex --skip-fact-check and a missing cv.md skip the gate', (t) => {

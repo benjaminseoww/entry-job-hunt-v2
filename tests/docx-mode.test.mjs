@@ -28,6 +28,21 @@ test('docx mode fact-gates the markdown, then the .docx', () => {
   assert.ok(mdGate < generate && generate < docxGate, 'expected md gate, then generate, then docx gate');
 });
 
+test('docx mode steps run 18 gate, 19 audit, 20 render, 21 docx gate', () => {
+  const s18 = mode.indexOf('\n18. Run the fact gate against the markdown');
+  const s19 = mode.indexOf('\n19. **Hiring-manager audit');
+  const s20 = mode.indexOf('\n20. Render the Word file');
+  const s21 = mode.indexOf('\n21. Run the fact gate against the generated Word file');
+  assert.ok(s18 >= 0 && s19 > s18 && s20 > s19 && s21 > s20);
+  assert.match(mode, /skip straight to Step 20/);
+  assert.doesNotMatch(mode, /skip straight to Step 19/);
+});
+
+test('docx mode keeps a single copy of the report template', () => {
+  const copies = [...mode.matchAll(/Unmatched \(consider addressing manually\): \{top 3 unmatched\}/g)];
+  assert.equal(copies.length, 1);
+});
+
 test('docx mode runs the title check and structure check against cv.md', () => {
   assert.match(mode, /node cv-title-check\.mjs /);
   assert.match(mode, /node verify-cv-structure\.mjs /);
