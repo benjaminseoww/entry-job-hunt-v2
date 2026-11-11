@@ -27,6 +27,8 @@ import { recordIndexRow } from '../lib/pdf-index.mjs';
 import { getCareerOpsRoot } from '../path-resolver.mjs';
 import {
   extractTrackerReportNumbers,
+  isPlaceholderPdfCell,
+  isReadyPdfCell,
   parseTrackerRow,
   resolveColumns,
   soleMarkdownLink,
@@ -70,6 +72,9 @@ export function planBackfill({ trackerText, workspaceRoot }) {
   for (let i = 0; i < lines.length; i++) {
     const row = parseTrackerRow(lines[i], colmap);
     if (!row) continue;
+    // Placeholders (❌/—/-/empty, FE0F-stripped) and ready ✅ stay for
+    // mark-pdf-ready / sync-pdf-flags. Only a [docx]/[Word] link is ours.
+    if (isPlaceholderPdfCell(row.pdf) || isReadyPdfCell(row.pdf)) continue;
     const target = isWordLink(row.pdf);
     if (!target) continue;
     const abs = resolve(workspaceRoot, target);
