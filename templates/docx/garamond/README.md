@@ -28,8 +28,9 @@ the page count may shift. The `▪` bullet is explicitly Arial in
 
 Output-root policy is local to `generate-docx.mjs`: writes are allowed under
 the project directory, the data root (`CAREER_OPS_ROOT`), or `os.tmpdir()`.
-That check is case-insensitive on macOS and Windows. It is not shared with
-`generate-pdf.mjs`.
+The check compares `realpathSync.native` results, so mixed-case spellings of
+the same directory match and a different-case sibling does not. It is not
+shared with `generate-pdf.mjs`.
 
 Only the theme (`word/theme/theme1.xml`) is copied verbatim from the
 reference. The reference's styles and numbering carried duplicate definitions

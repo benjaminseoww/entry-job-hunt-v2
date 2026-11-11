@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -182,7 +182,22 @@ test('inline: a triple-star run is bold italic', () => {
   assert.deepEqual(compareContent(md, built.buffer, built.model), { ok: true, missing: [], extra: [] });
 });
 
-test('inline: my__var__name and *nix and *BSD stay unflanked', () => {
+test('inline: ***Led** team* is italic with bold Led', () => {
+  const runs = parseInline('***Led** team*');
+  assert.equal(runs.map((r) => r.text).join(''), 'Led team');
+  assert.equal(runs[0].text, 'Led');
+  assert.equal(runs[0].bold, true);
+  assert.equal(runs[0].italic, true);
+  assert.equal(runs.some((r) => r.text.includes('team') && r.italic && !r.bold), true);
+  assert.equal(stripInlineMarkers('***Led** team*'), 'Led team');
+  const md = '# Jane\n\n## Work\n\n- ***Led** team*\n';
+  const built = build(md);
+  const paragraphs = extractDocxParagraphs(built.buffer);
+  assert.ok(paragraphs.some((p) => p.includes('Led') && p.includes('team') && !p.includes('*')), paragraphs.join('\n'));
+  assert.deepEqual(compareContent(md, built.buffer, built.model), { ok: true, missing: [], extra: [] });
+});
+
+test('B3: my__var__name and *nix and *BSD stay unflanked', () => {
   assert.equal(parseInline('my__var__name and __init__').map((r) => r.text).join(''), 'my__var__name and init');
   assert.equal(parseInline('my__var__name').map((r) => r.text).join(''), 'my__var__name');
   assert.equal(parseInline('*nix and *BSD').map((r) => r.text).join(''), '*nix and *BSD');
@@ -218,6 +233,16 @@ test('blocks: refuses raw inline HTML', () => {
     () => parseBlocks('# Jane\n\n## Work\n\n- Line one<br>line two\n'),
     /Unsupported markdown \(HTML\)/,
   );
+  assert.throws(
+    () => parseBlocks('# Jane\n\n## Work\n\n- <div>block</div>\n'),
+    /Unsupported markdown \(HTML\)/,
+  );
+});
+
+test('blocks: generics and code-span tags are not HTML', () => {
+  for (const ok of ['C++ <T>', 'List<String>', 'std::vector<int>', 'uses `<div>` in docs', '<3', 'a < b > c', '<jane@x.com>', '<50ms']) {
+    assert.doesNotThrow(() => parseBlocks(`# Jane\n\n## Work\n\n- ${ok}\n`), ok);
+  }
 });
 
 test('blocks: refuses empty link text', () => {
@@ -225,6 +250,25 @@ test('blocks: refuses empty link text', () => {
     () => parseBlocks('# Jane\n\n## Work\n\n[](https://x.com)\n'),
     /Unsupported markdown \(empty link text\)/,
   );
+  assert.throws(
+    () => parseBlocks('# Jane\n\n## Work\n\n[ ](https://x.com)\n'),
+    /Unsupported markdown \(empty link text\)/,
+  );
+});
+
+test('inline: autolinks become hyperlinks', () => {
+  const url = parseInline('see <https://x.com> now');
+  assert.equal(url.map((r) => r.text).join(''), 'see https://x.com now');
+  assert.equal(url.find((r) => r.text === 'https://x.com').link, 'https://x.com');
+  const mail = parseInline('write <me@x.com> please');
+  assert.equal(mail.map((r) => r.text).join(''), 'write me@x.com please');
+  assert.equal(mail.find((r) => r.text === 'me@x.com').link, 'mailto:me@x.com');
+  const md = '# Jane\n\n## Work\n\n- see <https://x.com> and <me@x.com>\n';
+  const built = build(md);
+  const rels = readZip(built.buffer).get('word/_rels/document.xml.rels').toString();
+  assert.match(rels, /Target="https:\/\/x.com"/);
+  assert.match(rels, /Target="mailto:me@x.com"/);
+  assert.deepEqual(compareContent(md, built.buffer, built.model), { ok: true, missing: [], extra: [] });
 });
 
 test('blocks: rules, comments, wrapped lines and Windows newlines', () => {
@@ -630,7 +674,7 @@ test('cli: plain output, a spaced template flag, help, an uppercase extension, a
   });
 });
 
-test('cli: a read-only existing good.docx survives a failed write', (t) => {
+test('B2: a read-only existing good.docx survives a failed write', (t) => {
   withTempDir((dir) => {
     const input = join(dir, 'ok.md');
     const output = join(dir, 'good.docx');
@@ -685,7 +729,7 @@ test('cli: overwriting keeps the existing file mode', (t) => {
   });
 });
 
-test('cli: a dangling-symlink chain does not write outside', (t) => {
+test('B1: a dangling-symlink chain does not write outside', (t) => {
   withTempDir((scratch) => {
     const input = join(scratch, 'ok.md');
     writeFileSync(input, MD);
@@ -806,20 +850,20 @@ test('layout: numbering.xml names a bullet glyph font', () => {
   assert.notEqual(LAYOUT.bulletFont, LAYOUT.font);
 });
 
-test('page length: a long document still writes and warns', () => {
-  const items = Array.from({ length: 130 }, (_, i) => `- Uniqueitem${i} word${i}`).join('\n');
+test('page length: wrapping bullets warn above one page', () => {
+  const long = 'Word '.repeat(40).trim();
+  const items = Array.from({ length: 48 }, (_, i) => `- Uniqueitem${i} ${long}`).join('\n');
   const md = `# Jane\n\n## Work\n\n${items}\n`;
-  assert.match(pageLengthWarning(200), /longer than two pages/);
-  assert.equal(pageLengthWarning(1), null);
   withTempDir((dir) => {
     const input = join(dir, 'ok.md');
     const output = join(dir, 'cv.docx');
     writeFileSync(input, md);
     const result = generateDocx({ input, output });
     assert.equal(result.ok, true, result.error);
-    assert.match(result.warning, /longer than two pages/);
+    assert.match(result.warning, /longer than one page/);
     assert.equal(existsSync(output), true);
   });
+  assert.equal(pageLengthWarning(['short'], 1), null);
 });
 
 test('cli: mkdtempOutsideAllowed dirs are cleaned up in finally', () => {
@@ -857,5 +901,48 @@ test('cli: mixed-case output roots are allowed on darwin/win32', (t) => {
     assert.equal(existsSync(output), true);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('cli: a different-case sibling of the data root is refused', (t) => {
+  const parent = mkdtempSync(join(tmpdir(), 'docx-case-sibling-'));
+  const upper = join(parent, 'CaseRoot');
+  const lower = join(parent, 'caseroot');
+  mkdirSync(upper);
+  try {
+    mkdirSync(lower);
+  } catch {
+    t.skip('filesystem cannot hold two case-distinct siblings');
+    rmSync(parent, { recursive: true, force: true });
+    return;
+  }
+  let upperReal;
+  let lowerReal;
+  try {
+    upperReal = realpathSync.native(upper);
+    lowerReal = realpathSync.native(lower);
+  } catch (error) {
+    t.skip(`native realpath failed: ${error.message}`);
+    rmSync(parent, { recursive: true, force: true });
+    return;
+  }
+  if (upperReal === lowerReal) {
+    t.skip('volume is case-insensitive');
+    rmSync(parent, { recursive: true, force: true });
+    return;
+  }
+  try {
+    const input = join(parent, 'ok.md');
+    writeFileSync(input, MD);
+    const output = join(lower, 'escape.docx');
+    const r = spawnSync(process.execPath, [join(ROOT, 'generate-docx.mjs'), input, output], {
+      encoding: 'utf8',
+      env: { ...process.env, CAREER_OPS_ROOT: upper },
+    });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /outside the project directory/);
+    assert.equal(existsSync(output), false);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
   }
 });

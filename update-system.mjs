@@ -387,12 +387,10 @@ export function parseLocalPaths(text) {
 /**
  * Read + validate the local declaration file.
  *
- * Refuses rather than honours anything ambiguous: an exact system entry or an
- * ancestor of one would silently stop updating, and a path that escapes the
+ * Refuses rather than honours anything ambiguous: a path the system layer
+ * already ships would silently stop updating, and a path that escapes the
  * checkout would widen the "never touch" set over files the updater does not
- * own. Both throw, naming the offending entry. A strictly longer path under a
- * system directory (templates/docx/ under templates/) is a fork-owned nested
- * tree and is allowed.
+ * own. Both throw, naming the offending entry.
  *
  * @param {string} [root=ROOT] - Repo root to read from.
  * @returns {string[]} Extra user-layer paths. Empty when the file is absent.
@@ -455,14 +453,7 @@ export function localUserPaths(root = ROOT) {
     const collision = SYSTEM_PATHS.find((sys) => {
       const systemSegments = manifestPathSegments(sys);
       const shared = Math.min(pathSegments.length, systemSegments.length);
-      if (!pathSegments.slice(0, shared).every((segment, index) => segment === systemSegments[index])) {
-        return false;
-      }
-      // A strictly longer path under a system directory is a fork-owned nested
-      // tree (templates/docx/ under templates/). Exact matches and ancestors
-      // of system entries still collide.
-      if (sys.endsWith('/') && pathSegments.length > systemSegments.length) return false;
-      return true;
+      return pathSegments.slice(0, shared).every((segment, index) => segment === systemSegments[index]);
     });
     if (collision) {
       reject(

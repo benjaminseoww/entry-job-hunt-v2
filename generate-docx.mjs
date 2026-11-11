@@ -53,18 +53,18 @@ word gained or lost fails the run and writes nothing.
   --json           print the result as JSON
   --help, -h       show this message`;
 
-function foldCase(p) {
-  return (process.platform === 'darwin' || process.platform === 'win32') ? p.toLowerCase() : p;
+function realNative(p) {
+  try { return realpathSync.native(p); } catch { return resolve(p); }
 }
 
 function inside(root, target) {
-  const r = foldCase(resolve(root));
-  const t = foldCase(resolve(target));
+  const r = realNative(root);
+  const t = realNative(target);
   return t === r || t.startsWith(r.endsWith(sep) ? r : r + sep);
 }
 
 function realOrSelf(p) {
-  try { return realpathSync(p); } catch { return resolve(p); }
+  return realNative(p);
 }
 
 function allowedRoots() {
@@ -187,7 +187,7 @@ export function generateDocx({ input, output, template = 'garamond' }) {
   }
   let realParent;
   try {
-    realParent = realpathSync(parent);
+    realParent = realpathSync.native(parent);
   } catch (error) {
     return { ok: false, error: `Could not write ${output}: ${error.message}` };
   }
@@ -195,7 +195,7 @@ export function generateDocx({ input, output, template = 'garamond' }) {
     return { ok: false, error: OUTSIDE_ERROR };
   }
 
-  const warning = pageLengthWarning(extractDocxParagraphs(built.buffer).length);
+  const warning = pageLengthWarning(extractDocxParagraphs(built.buffer), built.model.sections.length);
   try {
     writeDocxAtomically(realParent, name, built.buffer);
     return {
