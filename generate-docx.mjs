@@ -274,6 +274,8 @@ async function main() {
   if (result.factCheck?.verdict === 'skipped') {
     console.error(`fact gate skipped: ${result.factCheck.reason}`);
   }
+  // Index even when the fact gate was skipped: the write was still verified
+  // against the markdown, and --report is what later readers key on.
   if (result.ok && reportNum !== undefined) {
     const root = getCareerOpsRoot();
     await recordIndexRow({
