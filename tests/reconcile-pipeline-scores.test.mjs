@@ -11,7 +11,7 @@ import { describeSpawn } from './helpers/describe-spawn.mjs';
 const SCRIPT = join(dirname(dirname(fileURLToPath(import.meta.url))), 'reconcile-pipeline.mjs');
 const URL = 'https://jobs.example.test/4521';
 
-function fixture(t, { report, stateScore = '-', stateStatus = 'completed', language = 'en', profile = '' }) {
+function fixture(t, { report, stateScore = '-', stateStatus = 'completed', stateError = '', language = 'en', profile = '' }) {
   const root = mkdtempSync(join(tmpdir(), 'career-ops-reconcile-score-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   for (const dir of ['data', 'batch', 'reports']) mkdirSync(join(root, dir));
@@ -21,7 +21,7 @@ function fixture(t, { report, stateScore = '-', stateStatus = 'completed', langu
   const original = `# Pipeline\n\n## ${pending}\n\n- [ ] ${URL} | Example | Engineer\n- [ ] https://jobs.example.test/pending | Other | Analyst\n\n## ${processed}\n\n`;
   writeFileSync(pipeline, original);
   writeFileSync(join(root, 'batch', 'batch-state.tsv'),
-    `id\turl\tstatus\tstarted_at\tcompleted_at\treport_num\tscore\terror\tretries\n1\t${URL}\t${stateStatus}\t2026-09-01\t2026-09-01\t42\t${stateScore}\t\t0\n`);
+    `id\turl\tstatus\tstarted_at\tcompleted_at\treport_num\tscore\terror\tretries\n1\t${URL}\t${stateStatus}\t2026-09-01\t2026-09-01\t42\t${stateScore}\t${stateError}\t0\n`);
   writeFileSync(join(root, 'reports', '042-example-2026-09-01.md'), report);
   if (profile) {
     mkdirSync(join(root, 'config'), { recursive: true });
@@ -155,6 +155,40 @@ test('a missing CV with the default format is labelled PDF ❌', t => {
   });
   f.run();
   assert.deepEqual(processedRow(f.pipeline), { score: '2.5/5', pdf: 'PDF ❌' });
+});
+
+test('a .pdf path is labelled PDF even when output_format is docx', t => {
+  const f = fixture(t, {
+    report: '**Score:** 4.2/5\n**PDF:** output/042-cv.pdf',
+    profile: 'cv:\n  output_format: docx\n',
+  });
+  f.run();
+  assert.deepEqual(processedRow(f.pipeline), { score: '4.2/5', pdf: 'PDF ✅' });
+});
+
+test('a SKIP dealbreaker line with output_format docx is labelled Word ❌', t => {
+  const f = fixture(t, {
+    report: '**Score:** 2.5/5\n**PDF:** not generated',
+    stateStatus: 'skipped',
+    stateError: 'dealbreaker: visa',
+    profile: 'cv:\n  output_format: docx\n',
+  });
+  f.run();
+  const skip = readFileSync(f.pipeline, 'utf8').split('\n').find((line) => line.includes('SKIP'));
+  assert.match(skip, /Word ❌/);
+  assert.doesNotMatch(skip, /PDF/);
+});
+
+test('a SKIP dealbreaker line with the default format is labelled PDF ❌', t => {
+  const f = fixture(t, {
+    report: '**Score:** 2.5/5\n**PDF:** not generated',
+    stateStatus: 'skipped',
+    stateError: 'dealbreaker: visa',
+  });
+  f.run();
+  const skip = readFileSync(f.pipeline, 'utf8').split('\n').find((line) => line.includes('SKIP'));
+  assert.match(skip, /PDF ❌/);
+  assert.doesNotMatch(skip, /Word/);
 });
 
 test('dry-run, backup and repeated reconciliation preserve the Spanish pipeline', t => {

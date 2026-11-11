@@ -35,6 +35,7 @@ import {
   resolvePdfIndexPath,
   resolveTrackerPath,
   resolveWorkspaceRoot,
+  trackerLinkDirsFor,
 } from './tracker-utils.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import { localToday } from './lib/local-today.mjs';
@@ -292,10 +293,14 @@ if (flags.cv !== null) {
   // link). ✅ / ❌ cells are not paths — those fall through to the index.
   const rawPdfPath = pathFromCvCell(matchedRow.pdf);
   if (rawPdfPath) {
-    const fullPdfPath = join(repoRoot, rawPdfPath);
-    if (existsSync(fullPdfPath)) {
-      cvResolvedPath = fullPdfPath;
-      isGeneratedCv = isGeneratedCvPath(fullPdfPath);
+    const normalized = rawPdfPath.replace(/\\/g, '/');
+    for (const dir of [...trackerLinkDirsFor(DATA_ROOT), repoRoot]) {
+      const fullPdfPath = resolve(dir, normalized);
+      if (existsSync(fullPdfPath)) {
+        cvResolvedPath = fullPdfPath;
+        isGeneratedCv = isGeneratedCvPath(fullPdfPath);
+        break;
+      }
     }
   }
 

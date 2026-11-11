@@ -22,7 +22,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, basename } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -112,6 +112,7 @@ async function withWorkspace(fn, { html = true, manifest = true, outsideHtml = f
   } finally {
     if (prev === undefined) delete process.env.CAREER_OPS_ROOT;
     else process.env.CAREER_OPS_ROOT = prev;
+    rmSync(root, { recursive: true, force: true });
   }
 }
 
@@ -236,6 +237,7 @@ test("applyCvSource returns the tailored .md for a Word index row", async () => 
   } finally {
     if (prev === undefined) delete process.env.CAREER_OPS_ROOT;
     else process.env.CAREER_OPS_ROOT = prev;
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

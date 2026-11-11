@@ -31,7 +31,10 @@ export async function POST(req: Request, { params }: RouteContext) {
   const load = await loadStudio(n);
   if (!load.ok) {
     const status = load.reason === "unreadable-layout" || load.reason === "word-cv" ? 422 : 404;
-    return NextResponse.json({ error: load.reason === "word-cv" ? WORD_CV_MESSAGE : load.reason }, { status });
+    const body = load.reason === "word-cv"
+      ? { error: "word-cv" as const, message: WORD_CV_MESSAGE }
+      : { error: load.reason };
+    return NextResponse.json(body, { status });
   }
   const bullet = load.doc.sections.flatMap((s) => s.items.flatMap((i) => i.bullets)).find((b) => b.id === body.bulletId);
   if (!bullet) return NextResponse.json({ error: "unknown bullet" }, { status: 404 });

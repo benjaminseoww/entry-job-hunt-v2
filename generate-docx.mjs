@@ -270,7 +270,7 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  const result = generateDocx({ input: positional[0], output: positional[1], template, skipFactCheck });
+  let result = generateDocx({ input: positional[0], output: positional[1], template, skipFactCheck });
   if (result.factCheck?.verdict === 'skipped') {
     console.error(`fact gate skipped: ${result.factCheck.reason}`);
   }
@@ -278,15 +278,26 @@ async function main() {
   // against the markdown, and --report is what later readers key on.
   if (result.ok && reportNum !== undefined) {
     const root = getCareerOpsRoot();
-    await recordIndexRow({
-      trackerPath: resolveTrackerPath(root),
-      workspaceRoot: resolveWorkspaceRootFor(root),
-      reportNum,
-      file: result.output,
-      companion: resolve(positional[0]),
-      format: 'letter',
-      kind: 'cv',
-    });
+    try {
+      const path = await recordIndexRow({
+        trackerPath: resolveTrackerPath(root),
+        workspaceRoot: resolveWorkspaceRootFor(root),
+        reportNum,
+        file: result.output,
+        companion: resolve(positional[0]),
+        format: 'letter',
+        kind: 'cv',
+      });
+      result = { ...result, index: { ok: true, path } };
+    } catch (error) {
+      result = {
+        ...result,
+        index: { ok: false, error: error instanceof Error ? error.message : String(error) },
+      };
+    }
+  }
+  if (result.index && !result.index.ok) {
+    console.error(`generate-docx: index failed: ${result.index.error}`);
   }
   if (json) console.log(JSON.stringify(result, null, 2));
   else if (result.ok) {

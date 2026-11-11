@@ -71,6 +71,7 @@ const texPayload = ({ company, role, degree, org }) => ({
   email: { url: 'jane@example.com', display: 'jane@example.com' },
   education: [{ institution: org, location: 'Boston', degree, dates: '2015 - 2019' }],
   experience: [{ company, role, location: 'Remote', dates: '2019 - 2024', bullets: ['Led a team of 4 engineers.'] }],
+  projects: [{ name: 'Tooling', tech: 'Python', dates: '2023', bullets: ['Built internal tools.'] }],
   skills: [{ category: 'Languages', items: 'Python, Go' }],
 });
 
