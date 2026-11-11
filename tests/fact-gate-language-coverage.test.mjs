@@ -65,6 +65,9 @@ test('a clean English document is untouched — no new noise', () => {
     // (test-all "source-backed currency metrics") before this shipped.
     'Raised $120k and closed a $90,000 deal.',
     'Cut spend by $1.2M and latency by 30%.',
+    // Numbered list markers share the "digits, then a word" shape. They are
+    // enumerators, not counts of HubSpot.
+    'Ran it using 1) HubSpot, 2) Salesforce and 3) Looker.',
     '',
   ]) {
     assert.equal(diagnoseCoverage(text), null, `fired on: ${JSON.stringify(text)}`);
