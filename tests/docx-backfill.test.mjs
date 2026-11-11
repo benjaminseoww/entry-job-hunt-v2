@@ -18,6 +18,7 @@ const TRACKER = `# Applications Tracker
 | 1 | 2026-01-01 | Acme | Engineer | 4.2/5 | Applied | [docx](output/cv-acme.docx) | [1](reports/001-acme-2026-01-01.md) | linked live |
 | 2 | 2026-01-02 | Beta | PM | 3.1/5 | Applied | [Word](output/missing.docx) | [2](reports/002-beta-2026-01-02.md) | linked missing |
 | 3 | 2026-01-03 | Gamma | SA | 4.0/5 | Applied | ✅ | [3](reports/003-gamma-2026-01-03.md) | already ready |
+| 4 | 2026-01-04 | Delta | QA | 3.8/5 | Applied | ❌️ | [4](reports/004-delta-2026-01-04.md) | fe0f placeholder |
 `;
 
 function withFixture(fn) {
@@ -74,6 +75,7 @@ test('--write normalises linked cells, indexes existing files, and keeps a backu
     assert.match(tracker, /\| 2 \|[\s\S]*?\| ❌ \|/);
     assert.doesNotMatch(tracker, /\[docx\]/);
     assert.doesNotMatch(tracker, /\[Word\]/);
+    assert.match(tracker, /\| 4 \| 2026-01-04 \| Delta \| QA \| 3\.8\/5 \| Applied \| ❌️ \|/);
     assert.equal(readFileSync(join(root, 'data', 'applications.md.bak'), 'utf8'), TRACKER);
 
     const index = readFileSync(join(root, 'data', 'pdf-index.tsv'), 'utf8');
