@@ -540,7 +540,7 @@ var (
 	reListNumber     = regexp.MustCompile(`^(\s*\d+\.\s+)(.*)$`)
 	reCoverLetterPDF = regexp.MustCompile(`PDF generated:\s*(output/[^\s]+\.pdf)`)
 	reReportURLLine  = regexp.MustCompile(`^\*\*URL:\*\*\s*(\S+)`)
-	reRelPDFPath     = regexp.MustCompile(`output/cv-[^\s\)\]\.,;:!?"']+\.pdf`)
+	reRelPDFPath     = regexp.MustCompile(`output/cv-[^\s\)\]\.,;:!?"']+\.(?:pdf|docx)`)
 )
 
 func isHeadingLine(line string) bool {

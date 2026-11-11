@@ -39,3 +39,35 @@ func TestPDFKeysKeepCVWhenCoverWasGeneratedLater(t *testing.T) {
 		t.Fatalf("regenerated cover instead of CV: %+v", got)
 	}
 }
+
+func TestPDFKeysKeepDocxCVWhenCoverWasGeneratedLater(t *testing.T) {
+	t.Setenv("CAREER_OPS_TRACKER", "")
+	t.Setenv("CAREER_OPS_PDF_INDEX", "")
+	root := t.TempDir()
+	docx, md := "output/resume-acme.docx", "output/resume-acme.md"
+	writePDFFixture(t, root, docx)
+	writePDFFixture(t, root, md)
+	writePDFFixture(t, root, "output/cover-acme.pdf")
+	writePDFFixture(t, root, "output/cover-acme.html")
+	writePDFFixture(t, root, "data/pdf-index.tsv")
+	manifest := "7\t" + docx + "\t" + md + "\tletter\t2026-09-01\tcv\n" +
+		"7\toutput/cover-acme.pdf\toutput/cover-acme.html\tletter\t2026-09-02\tcover\n"
+	if err := os.WriteFile(filepath.Join(root, "data", "pdf-index.tsv"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pm := newPDFTestModel(t, root, []model.CareerApplication{{Company: "Acme", ReportNumber: "7", Status: "Evaluated", Score: 4, HasScore: true}})
+	_, cmd := pm.Update(keyMsg("d"))
+	if cmd == nil {
+		t.Fatal("expected CV open command")
+	}
+	if got := cmd().(PipelineOpenPDFMsg).Path; got != filepath.Join(root, filepath.FromSlash(docx)) {
+		t.Fatalf("opened cover instead of Word CV: %s", got)
+	}
+	_, cmd = pm.Update(keyMsg("D"))
+	if cmd == nil {
+		t.Fatal("expected CV generation command")
+	}
+	if got := cmd().(PipelineGeneratePDFMsg); got.PDFPath != docx || got.HTMLPath != md {
+		t.Fatalf("regenerated cover instead of Word CV: %+v", got)
+	}
+}

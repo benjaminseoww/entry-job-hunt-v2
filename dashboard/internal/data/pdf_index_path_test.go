@@ -84,3 +84,18 @@ func TestPDFIndexReadersKeepArtifactsWithSymlinkedTracker(t *testing.T) {
 		t.Fatalf("did not resolve writer's local artifact: %q, %v", artifact, err)
 	}
 }
+
+func TestPDFIndexReadersAcceptDocxRows(t *testing.T) {
+	t.Setenv("CAREER_OPS_TRACKER", "")
+	t.Setenv("CAREER_OPS_PDF_INDEX", "")
+	root := t.TempDir()
+	docx, md := "output/cv-exact.docx", "output/cv-exact.md"
+	writeFixture(t, root, "data/pdf-index.tsv", "7\t"+docx+"\t"+md+"\tletter\t2026-09-01\tcv\n")
+	entry := LoadPDFManifest(root)["7"]
+	if entry.PDFPath != docx || entry.HTMLPath != md {
+		t.Fatalf("docx index row not loaded: %+v", entry)
+	}
+	if got := LoadPDFEntriesByPath(root)[docx]; got != entry {
+		t.Fatalf("path reader disagrees on docx row: %+v", got)
+	}
+}

@@ -284,7 +284,7 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // openCmd wraps openWithDefaultApp (OS-specific) as a tea.Cmd. Shared by the
-// job-URL (`o`, pipeline and report viewer) and CV-PDF (`d`) actions.
+// job-URL (`o`, pipeline and report viewer) and CV (`d`) actions.
 func openCmd(target string) tea.Cmd {
 	return func() tea.Msg {
 		if err := openWithDefaultApp(target); err != nil {
@@ -297,13 +297,22 @@ func openCmd(target string) tea.Cmd {
 	}
 }
 
-// runGeneratePDF runs the checkout's generate-pdf.mjs against the selected data root,
-// opens the resulting PDF on success, and reports the outcome back to the
-// pipeline screen as a PipelinePDFGeneratedMsg. Runs in a tea.Cmd goroutine,
-// so the UI stays responsive while Chromium renders.
+func cvGeneratorScript(msg screens.PipelineGeneratePDFMsg) string {
+	if data.WordCV(msg.PDFPath, msg.HTMLPath) {
+		return "generate-docx.mjs"
+	}
+	return "generate-pdf.mjs"
+}
+
+// runGeneratePDF runs the checkout's generate-pdf.mjs (or generate-docx.mjs
+// for a Word CV) against the selected data root, opens the resulting file
+// on success, and reports the outcome back to the pipeline screen as a
+// PipelinePDFGeneratedMsg. Runs in a tea.Cmd goroutine, so the UI stays
+// responsive while Chromium renders.
 func runGeneratePDF(msg screens.PipelineGeneratePDFMsg) tea.Cmd {
 	return func() tea.Msg {
-		script, err := data.CheckoutScriptPath("generate-pdf.mjs")
+		scriptName := cvGeneratorScript(msg)
+		script, err := data.CheckoutScriptPath(scriptName)
 		if err != nil {
 			return screens.PipelinePDFGeneratedMsg{Err: err.Error()}
 		}
@@ -313,7 +322,8 @@ func runGeneratePDF(msg screens.PipelineGeneratePDFMsg) tea.Cmd {
 		}
 		pdfAbs := filepath.Join(root, filepath.FromSlash(msg.PDFPath))
 		args := []string{script, filepath.Join(root, filepath.FromSlash(msg.HTMLPath)), pdfAbs}
-		if msg.Format != "" {
+		// Word CVs are US Letter only; generate-docx.mjs has no --format flag.
+		if msg.Format != "" && !data.WordCV(msg.PDFPath, msg.HTMLPath) {
 			args = append(args, "--format="+msg.Format)
 		}
 		if msg.ReportNumber != "" {
@@ -338,7 +348,11 @@ func runGeneratePDF(msg screens.PipelineGeneratePDFMsg) tea.Cmd {
 			return screens.PipelinePDFGeneratedMsg{Err: summarizeCmdError(err, out)}
 		}
 		if err := openWithDefaultApp(pdfAbs); err != nil {
-			return screens.PipelinePDFGeneratedMsg{Err: fmt.Sprintf("PDF generated but could not open: %v", err)}
+			kind := "PDF"
+			if data.WordCV(msg.PDFPath, msg.HTMLPath) {
+				kind = "CV"
+			}
+			return screens.PipelinePDFGeneratedMsg{Err: fmt.Sprintf("%s generated but could not open: %v", kind, err)}
 		}
 		return screens.PipelinePDFGeneratedMsg{Path: pdfAbs}
 	}

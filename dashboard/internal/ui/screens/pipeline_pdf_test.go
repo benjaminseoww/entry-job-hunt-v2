@@ -215,3 +215,114 @@ func TestRegenerateKeyEmitsGenerateMsgFromManifest(t *testing.T) {
 		t.Fatalf("expected failure flash to carry the error, got %q", failed.flash)
 	}
 }
+
+func TestPDFKeyOpensIndexedDocx(t *testing.T) {
+	root := t.TempDir()
+	writePDFFixture(t, root, "output/cv-jane-doe-globex-2026-06-05.docx")
+	writePDFFixture(t, root, "data/pdf-index.tsv")
+	manifest := "001\toutput/cv-jane-doe-globex-2026-06-05.docx\toutput/cv-jane-doe-globex.md\tletter\t2026-06-05\tcv\n"
+	if err := os.WriteFile(filepath.Join(root, "data", "pdf-index.tsv"), []byte(manifest), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	apps := []model.CareerApplication{
+		{Company: "Globex", Role: "Engineer", Status: "Evaluated", Score: 4.0, HasScore: true, ReportNumber: "001"},
+	}
+
+	pm := newPDFTestModel(t, root, apps)
+	_, cmd := pm.Update(keyMsg("d"))
+	if cmd == nil {
+		t.Fatal("expected an open command for an indexed docx")
+	}
+	msg, ok := cmd().(PipelineOpenPDFMsg)
+	if !ok {
+		t.Fatalf("expected PipelineOpenPDFMsg, got %T", cmd())
+	}
+	if !strings.HasSuffix(msg.Path, "cv-jane-doe-globex-2026-06-05.docx") {
+		t.Fatalf("unexpected CV path %q", msg.Path)
+	}
+}
+
+func TestPDFKeyFallsBackToUnindexedDocx(t *testing.T) {
+	root := t.TempDir()
+	writePDFFixture(t, root, "output/cv-jane-doe-globex-2026-06-05.docx")
+	apps := []model.CareerApplication{
+		{Company: "Globex", Role: "Engineer", Status: "Evaluated", Score: 4.0, HasScore: true},
+	}
+
+	pm := newPDFTestModel(t, root, apps)
+	_, cmd := pm.Update(keyMsg("d"))
+	if cmd == nil {
+		t.Fatal("expected an open command for an unindexed docx")
+	}
+	msg := cmd().(PipelineOpenPDFMsg)
+	if !strings.HasSuffix(msg.Path, "cv-jane-doe-globex-2026-06-05.docx") {
+		t.Fatalf("unexpected CV path %q", msg.Path)
+	}
+}
+
+func TestPDFPickerTitleIsOpenCV(t *testing.T) {
+	pm := newPDFTestModel(t, t.TempDir(), []model.CareerApplication{
+		{Company: "Globex", Role: "Engineer", Status: "Evaluated", Score: 4.0, HasScore: true},
+	})
+	pm.pdfPicker = true
+	pm.pdfChoices = []string{"output/cv-a.pdf", "output/cv-b.docx"}
+	view := pm.View()
+	if !strings.Contains(view, "Open CV:") {
+		t.Fatalf("expected picker title Open CV:, got %q", view)
+	}
+	if strings.Contains(view, "Open CV PDF:") {
+		t.Fatalf("picker still uses the old PDF title: %q", view)
+	}
+}
+
+func TestRegenerateKeyEmitsGenerateMsgFromDocxManifest(t *testing.T) {
+	root := t.TempDir()
+	writePDFFixture(t, root, "output/cv-jane-doe-globex.md")
+	writePDFFixture(t, root, "output/cv-jane-doe-globex-2026-06-05.docx")
+	writePDFFixture(t, root, "data/pdf-index.tsv")
+	manifest := "001\toutput/cv-jane-doe-globex-2026-06-05.docx\toutput/cv-jane-doe-globex.md\tletter\t2026-06-05\tcv\n"
+	if err := os.WriteFile(filepath.Join(root, "data", "pdf-index.tsv"), []byte(manifest), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	apps := []model.CareerApplication{
+		{Company: "Globex", Role: "Engineer", Status: "Evaluated", Score: 4.0, HasScore: true, ReportNumber: "001"},
+	}
+
+	pm := newPDFTestModel(t, root, apps)
+	updated, cmd := pm.Update(keyMsg("D"))
+	if cmd == nil {
+		t.Fatal("expected a generate command")
+	}
+	if !strings.Contains(updated.flash, "generate-docx.mjs") {
+		t.Fatalf("expected docx regenerate flash, got %q", updated.flash)
+	}
+	msg, ok := cmd().(PipelineGeneratePDFMsg)
+	if !ok {
+		t.Fatalf("expected PipelineGeneratePDFMsg, got %T", cmd())
+	}
+	if msg.ReportNumber != "001" || msg.HTMLPath != "output/cv-jane-doe-globex.md" || msg.PDFPath != "output/cv-jane-doe-globex-2026-06-05.docx" {
+		t.Fatalf("unexpected generate request: %+v", msg)
+	}
+}
+
+func TestRegenerateKeyFlashesWhenDocxMarkdownMissing(t *testing.T) {
+	root := t.TempDir()
+	writePDFFixture(t, root, "output/cv-jane-doe-globex-2026-06-05.docx")
+	writePDFFixture(t, root, "data/pdf-index.tsv")
+	manifest := "001\toutput/cv-jane-doe-globex-2026-06-05.docx\toutput/cv-jane-doe-globex.md\tletter\t2026-06-05\tcv\n"
+	if err := os.WriteFile(filepath.Join(root, "data", "pdf-index.tsv"), []byte(manifest), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	apps := []model.CareerApplication{
+		{Company: "Globex", Role: "Engineer", Status: "Evaluated", Score: 4.0, HasScore: true, ReportNumber: "001"},
+	}
+
+	pm := newPDFTestModel(t, root, apps)
+	updated, cmd := pm.Update(keyMsg("D"))
+	if cmd != nil {
+		t.Fatalf("expected no generate command when markdown is missing, got %#v", cmd())
+	}
+	if !strings.Contains(updated.flash, "Source markdown missing") {
+		t.Fatalf("expected missing-markdown flash, got %q", updated.flash)
+	}
+}

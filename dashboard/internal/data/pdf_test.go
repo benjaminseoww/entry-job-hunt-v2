@@ -168,6 +168,90 @@ func TestResolvePDFsNoMatch(t *testing.T) {
 	}
 }
 
+func TestResolvePDFsPrefersDocxManifest(t *testing.T) {
+	root := t.TempDir()
+	writeFixture(t, root, "output/cv-jane-doe-acme-2026-06-01.pdf", "pdf")
+	writeFixture(t, root, "output/cv-jane-doe-acme-exact-2026-06-05.docx", "docx")
+	writeFixture(t, root, "data/pdf-index.tsv",
+		"012\toutput/cv-jane-doe-acme-exact-2026-06-05.docx\toutput/cv.md\tletter\t2026-06-05\tcv\n")
+
+	app := model.CareerApplication{Company: "Acme", ReportNumber: "012"}
+	got := ResolvePDFs(root, app, LoadPDFManifest(root))
+	if len(got) != 1 || got[0] != "output/cv-jane-doe-acme-exact-2026-06-05.docx" {
+		t.Fatalf("expected single exact docx manifest match, got %v", got)
+	}
+}
+
+func TestResolvePDFsFallsBackToUnindexedDocx(t *testing.T) {
+	root := t.TempDir()
+	writeFixture(t, root, "output/cv-jane-doe-acme-2026-06-01.pdf", "pdf")
+	writeFixture(t, root, "output/cv-jane-doe-acme-2026-06-05.docx", "docx")
+	writeFixture(t, root, "data/pdf-index.tsv",
+		"012\toutput/cv-deleted.docx\toutput/cv.md\tletter\t2026-06-05\tcv\n")
+
+	app := model.CareerApplication{Company: "Acme", ReportNumber: "012"}
+	got := ResolvePDFs(root, app, LoadPDFManifest(root))
+	if len(got) != 2 {
+		t.Fatalf("expected pdf and unindexed docx glob fallback, got %v", got)
+	}
+	if got[0] != "output/cv-jane-doe-acme-2026-06-05.docx" {
+		t.Fatalf("expected newest date stamp first, including .docx, got %v", got)
+	}
+}
+
+func TestResolvePDFsGlobReturnsUnindexedDocxNewestFirst(t *testing.T) {
+	root := t.TempDir()
+	writeFixture(t, root, "output/cv-jane-doe-anthropic-2026-06-01.docx", "docx")
+	writeFixture(t, root, "output/cv-jane-doe-anthropic-staff-ui-2026-06-05.docx", "docx")
+	writeFixture(t, root, "output/cv-jane-doe-netflix-2026-06-05.docx", "docx")
+
+	app := model.CareerApplication{Company: "Anthropic", ReportNumber: "099"}
+	got := ResolvePDFs(root, app, LoadPDFManifest(root))
+	if len(got) != 2 {
+		t.Fatalf("expected 2 anthropic docx matches, got %v", got)
+	}
+	if got[0] != "output/cv-jane-doe-anthropic-staff-ui-2026-06-05.docx" {
+		t.Fatalf("expected newest docx first, got %v", got)
+	}
+}
+
+func TestResolvePDFsDoesNotMatchCompanyPrefixOnDocx(t *testing.T) {
+	root := t.TempDir()
+	writeFixture(t, root, "output/cv-jane-doe-metabase-2026-06-05.docx", "docx")
+
+	app := model.CareerApplication{Company: "Meta"}
+	if got := ResolvePDFs(root, app, LoadPDFManifest(root)); len(got) != 0 {
+		t.Fatalf("expected Meta not to match Metabase's docx, got %v", got)
+	}
+}
+
+func TestWordCV(t *testing.T) {
+	if !WordCV("output/cv.docx", "output/cv.md") {
+		t.Fatal("expected Word CV for .docx + .md")
+	}
+	if !WordCV("output/cv.docx", "") {
+		t.Fatal("expected Word CV from .docx path alone")
+	}
+	if !WordCV("", "output/cv.md") {
+		t.Fatal("expected Word CV from .md companion alone")
+	}
+	if WordCV("output/cv.pdf", "output/cv.html") {
+		t.Fatal("PDF+HTML must not count as Word")
+	}
+}
+
+func TestCompanionOutputPath(t *testing.T) {
+	if got := companionOutputPath("output/cv-acme.md"); got != "output/cv-acme.docx" {
+		t.Fatalf("md companion = %q, want .docx", got)
+	}
+	if got := companionOutputPath("output/cv-acme.html"); got != "output/cv-acme.pdf" {
+		t.Fatalf("html companion = %q, want .pdf", got)
+	}
+	if got := companionOutputPath("output/cv-acme.HTML"); got != "output/cv-acme.pdf" {
+		t.Fatalf("HTML companion = %q, want .pdf", got)
+	}
+}
+
 func TestKebabCase(t *testing.T) {
 	cases := map[string]string{
 		"Monarch Money":   "monarch-money",
