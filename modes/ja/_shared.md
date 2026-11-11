@@ -183,7 +183,7 @@ Archetype を検出した後、`modes/_profile.md` を読み、該当 archetype 
 **Two-tier scope（CV の正確性を守るための分離）:**
 
 - **Tier 1 -- anti-AI-slop guardrail**（voice-dna §3 Banned List、§4 Patterns to Avoid: banned words、dead phrases、no em-dashes、no negative parallelisms、formatting rules）。HARD RULES。CV bullets と Professional Summary を含む **all generated text** に適用する。
-- **Tier 2 -- conversational voice**（voice-dna §1-2: contractions、And/But sentence openers、"I think" / "maybe" のような hedging、parenthetical asides、direct "I"/"you"）。cover letters、LinkedIn outreach、follow-up emails など conversational candidate-facing prose のみに適用する。**CV/ATS text**（PDF bullets、Professional Summary）には Tier 2 を適用しない。そこでは formal, keyword-dense register を維持する。
+- **Tier 2 -- conversational voice**（voice-dna §1-2: contractions、And/But sentence openers、"I think" / "maybe" のような hedging、parenthetical asides、direct "I"/"you"）。cover letters、LinkedIn outreach、follow-up emails など conversational candidate-facing prose のみに適用する。**CV/ATS text**（CV bullets、Professional Summary）には Tier 2 を適用しない。そこでは formal, keyword-dense register を維持する。
 
 **Accuracy always wins over style.** `cv.md` と `article-digest.md` の facts は voice-dna によって上書きされない。実在する metric を rhythm のために落とす、弱める、hedge することはしない。人間らしく見せるために detail を発明しない。voice-dna は wording を shaping するだけで content を変えない。
 

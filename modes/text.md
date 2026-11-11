@@ -97,7 +97,7 @@ Identical to `modes/pdf.md`. Legitimate reformulation:
 `data/pdf-index.tsv`, which `find.mjs`, the dashboard and the `email` mode read to
 locate an attachment. This mode produces no PDF, so marking it `✅` would point
 those consumers at a file that does not exist. A `text`-mode run that later needs a
-PDF can run `/career-ops pdf` and pick the column up then.
+PDF can run `/career-ops pdf`. For a Word file, run `/career-ops docx`.
 
 Report to the user:
 
