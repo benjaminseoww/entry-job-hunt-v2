@@ -22,7 +22,7 @@
 
 import { readFileSync, existsSync } from 'fs';
 import { join, resolve, dirname } from 'path';
-import { extractTrackerReportNumbers, resolveColumns, parseTrackerRow } from './tracker-parse.mjs';
+import { extractTrackerReportNumbers, resolveColumns, parseTrackerRow, isPlaceholderPdfCell } from './tracker-parse.mjs';
 import { rebuildRow, resolveTrackerPath, resolvePdfIndexPath, openTrackerTransaction, writeFileAtomic, resolveWorkspaceRoot, pathIsInsideCanonical } from './tracker-utils.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
@@ -246,7 +246,13 @@ export async function syncTrackerPdfFlags(options = {}) {
       const hasPdf = reportNums.some(num => manifestReports.has(num));
 
       if (hasPdf) {
-        if (row.pdf !== '✅') {
+        if (row.pdf === '✅') {
+          unchanged++;
+        } else if (!isPlaceholderPdfCell(row.pdf)) {
+          // A [Word](…) / [docx](…) link is the path docx-backfill needs.
+          // Overwriting it with ✅ would drop that provenance.
+          console.warn(`⚠️ #${row.num}: PDF/Word cell holds "${row.pdf}", left as is (run docx-backfill)`);
+        } else {
           const parts = lines[i].split('|').map(s => s.trim());
           // parts includes leading empty string, so its length is at least colmap max + 1
           while (parts.length <= colmap.pdf) parts.push('');
@@ -258,8 +264,6 @@ export async function syncTrackerPdfFlags(options = {}) {
           } else if (!flags.json && flags.dryRun) {
             console.log(`🔎 #${row.num} ${row.company} — ${row.role}: would update PDF flag to ✅`);
           }
-        } else {
-          unchanged++;
         }
       }
     }

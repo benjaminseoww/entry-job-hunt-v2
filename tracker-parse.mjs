@@ -26,6 +26,9 @@ export const LEGACY_COLMAP = {
  * Loaded from tracker-aliases.json — the ONE shared alias table, which the web
  * read path (web/src/lib/tracker-table.mjs) also loads at runtime, so the two
  * can never drift (PR #1598 review). Add new aliases in the JSON, not here.
+ * Last occurrence wins: a tracker with both `| PDF |` and `| Word |` binds
+ * `pdf` to the later column. That is a silent change from main, where Word
+ * was unrecognized and the PDF column kept the field.
  *
  * A missing or corrupt JSON is a broken install (the file ships alongside this
  * module in SYSTEM_PATHS/BOOTSTRAP_PATHS): fail fast with an actionable
@@ -58,6 +61,18 @@ export const HEADER_ALIASES = (() => {
  * the score and status columns regardless of their order (#1427).
  */
 export const SCORE_CELL_RE = /^\d+(?:\.\d+)?\/5$/;
+
+/**
+ * Cells the PDF/Word writers may flip to ✅. Empty, ❌, — and - are the
+ * tracker's "not ready" placeholders. Anything else (a `[Word](…)` /
+ * `[docx](…)` link) is left alone so docx-backfill can still find the file.
+ * @param {string} [v]
+ * @returns {boolean}
+ */
+export function isPlaceholderPdfCell(v) {
+  const t = String(v ?? '').trim();
+  return t === '' || t === '❌' || t === '—' || t === '-';
+}
 
 /** @param {string} v @returns {boolean} whether the cell reads as a score. */
 export function looksLikeScoreCell(v) {

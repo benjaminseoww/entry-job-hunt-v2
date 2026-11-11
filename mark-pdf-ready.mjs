@@ -35,7 +35,7 @@
  */
 
 import { readFileSync, existsSync } from 'fs';
-import { extractTrackerReportNumbers, resolveColumns, parseTrackerRow } from './tracker-parse.mjs';
+import { extractTrackerReportNumbers, resolveColumns, parseTrackerRow, isPlaceholderPdfCell } from './tracker-parse.mjs';
 import {
   rebuildRow, resolveTrackerPath, writeFileAtomic, CLI_EXIT, makeCliFailWith, makeCliFailUsage, acquireTrackerLockForCli,
 } from './tracker-utils.mjs';
@@ -144,10 +144,16 @@ const target = matches[0];
 // ── locked read-modify-write ─────────────────────────────────────
 
 const alreadyReady = target.pdf.trim() === '✅';
+const skippedLink = !alreadyReady && !isPlaceholderPdfCell(target.pdf);
+if (skippedLink) {
+  // A [Word](…) / [docx](…) link is the path docx-backfill needs.
+  console.warn(`⚠️ #${target.num}: PDF/Word cell holds "${target.pdf}", left as is (run docx-backfill)`);
+}
 // Matches set-status.mjs's contract: `changed` reflects whether a write WOULD
 // happen, computed independent of --dry-run, so a preview call can tell "would
-// mark" apart from "already ✅" without actually writing.
-const changed = !alreadyReady;
+// mark" apart from "already ✅" without actually writing. Link cells are not
+// a write: flipping them to ✅ would drop the file path.
+const changed = !alreadyReady && !skippedLink;
 
 if (changed && !flags.dryRun) {
   const parts = lines[target.lineIdx].split('|').map(s => s.trim());
@@ -176,7 +182,7 @@ const result = {
 
 if (flags.json) {
   console.log(JSON.stringify(result, null, 2));
-} else {
+} else if (!skippedLink) {
   const verb = flags.dryRun ? (alreadyReady ? 'already' : 'would mark') : changed ? 'marked' : 'already';
   console.log(`✅ #${target.num} ${target.company} — ${target.role}: ${verb} PDF ready`);
 }

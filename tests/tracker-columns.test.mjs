@@ -1243,7 +1243,7 @@ async function syncThenExport(content) {
   return { sb, sync, exported };
 }
 
-// ── a Location + URL layout survives sync → export byte-for-byte ────────────
+// ── | Word | stores the CV cell in pdf and round-trips the header ───────────
 test('tracker.mjs: Word header stores the cell in pdf and round-trips byte-for-byte', SQLITE, async (t) => {
   const WORD = `# Applications Tracker
 
@@ -1264,6 +1264,32 @@ test('tracker.mjs: Word header stores the cell in pdf and round-trips byte-for-b
   assert.deepEqual(JSON.parse(row.extras), {});
 });
 
+test('tracker.mjs: | PDF | Word | last-wins binds pdf to Word; PDF lands in extras', SQLITE, async (t) => {
+  const BOTH = `# Applications Tracker
+
+| # | Date | Company | Role | Score | Status | PDF | Word | Report | Notes |
+|---|------|---------|------|-------|--------|-----|------|--------|-------|
+| 1 | 2026-01-01 | Acme | Engineer | 4.2/5 | Applied | ❌ | ✅ | — | seed row |
+`;
+  const lines = BOTH.split('\n');
+  const colmap = resolveColumns(lines);
+  assert.equal(colmap.pdf, 8);
+  const parsed = parseTrackerRow(lines[4], colmap);
+  assert.equal(parsed.pdf, '✅');
+  const { sb, sync, exported } = await syncThenExport(BOTH);
+  t.after(() => removeSandbox(sb));
+  assert.equal(sync.code, 0, sync.stderr);
+  assert.equal(exported.code, 0, exported.stderr);
+  assert.equal(exported.stdout, BOTH);
+  const { DatabaseSync } = await import('node:sqlite');
+  const db = new DatabaseSync(sb.db);
+  const row = db.prepare('SELECT pdf, extras FROM applications WHERE id = 1').get();
+  db.close();
+  assert.equal(row.pdf, '✅');
+  assert.equal(JSON.parse(row.extras)['7'], '❌');
+});
+
+// ── a Location + URL layout survives sync → export byte-for-byte ────────────
 test('tracker.mjs export: Location/URL layout round-trips byte-for-byte', SQLITE, async (t) => {
   const CUSTOM = `# Applications Tracker
 
