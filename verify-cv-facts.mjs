@@ -7,15 +7,15 @@
  * shared by PDF generators so every generated document gets the same gate.
  *
  * Usage:
- *   node verify-cv-facts.mjs <generated-cv.html|md|tex|docx>
+ *   node verify-cv-facts.mjs <generated-cv.html|md|tex|docx|docm|dotx>
  *   node verify-cv-facts.mjs <generated-cv> --source cv.md --source article-digest.md
  *   node verify-cv-facts.mjs --self-test
  */
 
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, statSync } from 'fs';
 import { isAbsolute, join, basename, extname } from 'path';
 import { isMainModule } from './lib/is-main-module.mjs';
-import { extractDocxText } from './lib/docx-text.mjs';
+import { extractDocxText, MAX_DOCX_BYTES } from './lib/docx-text.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 
 // Two roots, because this gate compares user-layer files against a user-layer
@@ -403,18 +403,40 @@ function readIfExists(path) {
   return existsSync(path) ? readFileSync(path, 'utf-8') : '';
 }
 
+const WORD_EXTS = new Set(['.docx', '.docm', '.dotx']);
+const REFUSE_BINARY_EXTS = new Set(['.pdf', '.doc', '.odt']);
+
+export function isWordGeneratedPath(path) {
+  return WORD_EXTS.has(extname(path).toLowerCase());
+}
+
 /**
  * Visible text of a generated CV for the fact gate.
  *
- * `.docx` is a zip of XML, so reading it as UTF-8 would feed the gate PK
- * headers instead of the resume. Everything else (HTML, markdown, LaTeX) is
- * already text and is read as UTF-8.
+ * Word files are a zip of XML, so reading them as UTF-8 would feed the gate
+ * PK headers instead of the resume. `.pdf` / `.doc` / `.odt` are refused:
+ * gate the `.md`/`.html` source instead. Everything else (HTML, markdown,
+ * LaTeX) is already text and is read as UTF-8.
  *
  * @param {string} path
  * @returns {string}
  */
 export function readGeneratedText(path) {
-  if (extname(path).toLowerCase() === '.docx') return extractDocxText(readFileSync(path));
+  const ext = extname(path).toLowerCase();
+  if (REFUSE_BINARY_EXTS.has(ext)) {
+    throw new Error('gate the .md/.html source instead');
+  }
+  if (WORD_EXTS.has(ext)) {
+    const { size } = statSync(path);
+    if (size > MAX_DOCX_BYTES) throw new Error(`Corrupt .docx: file exceeds ${MAX_DOCX_BYTES} bytes`);
+    try {
+      return extractDocxText(readFileSync(path));
+    } catch (err) {
+      const msg = String(err?.message || err);
+      if (msg.startsWith('Corrupt .docx:') || msg === 'no readable text in .docx') throw err;
+      throw new Error(`Corrupt .docx: ${msg}`);
+    }
+  }
   return readFileSync(path, 'utf-8');
 }
 
@@ -529,7 +551,16 @@ function latexBody(text) {
 }
 
 /** Remove HTML, basic LaTeX commands, and excess whitespace from document text. */
-export function stripMarkup(text, { keepLineBreaks = false } = {}) {
+export function stripMarkup(text, { keepLineBreaks = false, format } = {}) {
+  if (format === 'text') {
+    const visible = String(text)
+      .replace(/\p{Default_Ignorable_Code_Point}/gu, '')
+      .replace(/[\u00ae\u2120\u2122]/g, '');
+    return foldDigits(visible)
+      .replace(keepLineBreaks ? /[^\S\n]+/g : /\s+/g, ' ')
+      .replace(/ *\n+ */g, keepLineBreaks ? '\n' : ' ')
+      .trim();
+  }
   text = latexBody(text);
   // An entity is the character it encodes, and a default-ignorable character
   // (zero-width space, joiner, soft hyphen, directional mark, variation
@@ -919,8 +950,8 @@ function tidyToolName(name) {
  * shape-only behaviour as before: a tool-shaped fragment is extracted, an
  * ordinary lowercase one is not.
  */
-export function factClaims(text, sourceNormalized = null) {
-  const clean = stripMarkup(text);
+export function factClaims(text, sourceNormalized = null, { format } = {}) {
+  const clean = stripMarkup(text, { format });
   const claims = [];
   const patterns = [
     // The TRIGGER is case-insensitive, the CAPTURE is not. Both patterns used
@@ -1072,11 +1103,11 @@ const LATEX_SUBHEADING_RE = new RegExp(String.raw`\\resumeSubheading${LATEX_ARG}
  * @param {string} text - generated HTML or LaTeX
  * @returns {{kind: string, value: string, line: string, blocking: boolean}[]}
  */
-export function structuredFieldClaims(text) {
-  const raw = latexBody(text ?? '');
+export function structuredFieldClaims(text, { format } = {}) {
+  const raw = format === 'text' ? String(text ?? '') : latexBody(text ?? '');
   const claims = [];
   const add = (kind, inner, blocking) => {
-    const line = stripMarkup(inner);
+    const line = stripMarkup(inner, { format });
     const value = normalizeFact(line);
     if (value) claims.push({ kind, value, line, blocking });
   };
@@ -1096,9 +1127,9 @@ export function structuredFieldClaims(text) {
 }
 
 /** Split generated/source documents into bounded statements for attribution checks. */
-function factStatements(text) {
+function factStatements(text, { format } = {}) {
   const withLineBoundaries = String(text ?? '').replace(/\r?\n+/g, '. ');
-  return stripMarkup(withLineBoundaries)
+  return stripMarkup(withLineBoundaries, { format })
     .split(/(?:[.!?]\s+|[.!?]$)/u)
     .map(statement => statement.trim())
     .filter(Boolean);
@@ -1756,8 +1787,8 @@ function compactMagnitude(raw) {
 }
 
 /** Extract metric-like claims that require source evidence. */
-export function metricClaims(text, { keepPlanHorizons = false } = {}) {
-  const clean = spellNumbers(stripMarkup(text, { keepLineBreaks: true }));
+export function metricClaims(text, { keepPlanHorizons = false, format } = {}) {
+  const clean = spellNumbers(stripMarkup(text, { keepLineBreaks: true, format }));
   const claims = new Set();
   for (const pattern of SIMPLE_CLAIM_PATTERNS) {
     for (const match of clean.matchAll(pattern)) claims.add(canonicalMetric(match[0]));
@@ -1787,8 +1818,8 @@ const YEAR_LIKE = /^(?:19|20)\d{2}$/;
  * @param {string} text
  * @returns {string[]}
  */
-function countShapedSpans(text) {
-  const clean = stripMarkup(String(text ?? ''));
+function countShapedSpans(text, { format } = {}) {
+  const clean = stripMarkup(String(text ?? ''), { format });
 
   // Ranges the language-neutral patterns already own. "$120k and closed a
   // $90,000 deal" is currency followed by prose, and reads as two counts to a
@@ -1867,8 +1898,8 @@ function countShapedSpans(text) {
  * @param {string} targetText
  * @returns {{reason: string, message: string, spans: string[]}|null}
  */
-export function diagnoseCoverage(targetText) {
-  const spans = countShapedSpans(targetText);
+export function diagnoseCoverage(targetText, { format } = {}) {
+  const spans = countShapedSpans(targetText, { format });
   if (spans.length < 2) return null;
   // RAW matches on purpose. This asks "could the extractor read any count here?",
   // which is about the noun lexicon, not about whether a count was later judged a
@@ -1876,7 +1907,7 @@ export function diagnoseCoverage(targetText) {
   // horizons report "none matched the metric extractor, whose noun list is
   // English-only" -- a false warn blaming the lexicon for counts it had read fine.
   COUNT_CLAIM_RE.lastIndex = 0;
-  const recognized = [...stripMarkup(String(targetText ?? '')).matchAll(COUNT_CLAIM_RE)];
+  const recognized = [...stripMarkup(String(targetText ?? ''), { format }).matchAll(COUNT_CLAIM_RE)];
   if (recognized.length > 0) return null;
   return {
     reason: 'no-count-claims-recognized',
@@ -2013,8 +2044,8 @@ function looksEnglish(text) {
  *
  * @returns {string|null}
  */
-function scopeLanguageGap(targetText, sourceText) {
-  const targetEnglish = looksEnglish(stripMarkup(targetText));
+function scopeLanguageGap(targetText, sourceText, { format } = {}) {
+  const targetEnglish = looksEnglish(stripMarkup(targetText, { format }));
   const sourceEnglish = looksEnglish(stripMarkup(sourceText));
   if (targetEnglish && sourceEnglish) return null;
   const subject = !targetEnglish && !sourceEnglish
@@ -2047,7 +2078,7 @@ function sourceContainsFact(sourceText, value) {
 
 /**
  * @param {string} targetText generated candidate-facing HTML/Markdown/text
- * @param {{ sourcePaths?: string[], planTexts?: string[], configPath?: string, cwd?: string }} options
+ * @param {{ sourcePaths?: string[], planTexts?: string[], configPath?: string, cwd?: string, format?: 'text' }} options
  *   planTexts: what the candidate wrote for one document, such as the answers
  *   for a cover letter. They support only a number the document states as a
  *   plan, never an employer, title, tool, or past experience. The rendered
@@ -2060,22 +2091,24 @@ export function verifyFacts(targetText, {
   planTexts = [],
   configPath = DEFAULT_CONFIG,
   cwd = process.cwd(),
+  format,
 } = {}) {
+  const targetOpts = format === 'text' ? { format: 'text' } : {};
   // Per file, before the join: stripMarkup keeps only the body of a LaTeX
   // document, and run on the joined text it would discard every source read
   // ahead of a .tex one as if it were that document's preamble.
   const sourceText = sourcePaths.map(path => latexBody(readIfExists(resolveInputPath(path, cwd)))).join('\n');
   const { missing: configMissing, config } = loadFactConfig(resolveInputPath(configPath, cwd));
   const allowed = allowedMetricSet(sourceText, config.allow_metrics);
-  const targetClaims = metricClaims(targetText);
-  const planned = plannedClaims(targetText, planTexts);
+  const targetClaims = metricClaims(targetText, targetOpts);
+  const planned = plannedClaims(targetText, planTexts, targetOpts);
   const invented = [...targetClaims].filter(claim => !allowed.has(claim) && !planned.has(claim));
   const sourceNormalized = normalizeFact(stripMarkup(sourceText));
   const allowedFacts = new Set(config.allow_facts.map(normalizeFact));
   const unsourced = ({ value }) => !sourceContainsFact(sourceNormalized, value) && !allowedFacts.has(value);
-  const fieldClaims = structuredFieldClaims(targetText).filter(unsourced);
+  const fieldClaims = structuredFieldClaims(targetText, targetOpts).filter(unsourced);
   const namedFacts = [
-    ...factClaims(targetText, sourceNormalized),
+    ...factClaims(targetText, sourceNormalized, targetOpts),
     ...delegatedAuthorshipClaims(targetText, sourceText),
     ...fieldClaims.filter(claim => claim.blocking).map(({ kind, value }) => ({ kind, value })),
   ].filter(unsourced);
@@ -2085,7 +2118,7 @@ export function verifyFacts(targetText, {
   // in the sources, which is a different question: an inflated bullet whose
   // words happen to occur elsewhere in cv.md would be dropped, and the whole
   // finding is that the source says something WEAKER about the same entry.
-  const languageGap = scopeLanguageGap(targetText, sourceText);
+  const languageGap = scopeLanguageGap(targetText, sourceText, targetOpts);
   const comparedFacts = (languageGap ? [] : scopeInflationClaims(targetText, sourceText))
     .filter(({ value }) => !allowedFacts.has(value));
   // Adoption claims warn instead of block. The phrase list cannot see every
@@ -2099,16 +2132,16 @@ export function verifyFacts(targetText, {
     .filter((claim, index, claims) => claims.findIndex(other => other.kind === claim.kind && other.value === claim.value) === index);
   const forbidden = config.forbidden_phrases
       .filter(Boolean)
-      .filter(phrase => stripMarkup(targetText).toLowerCase().includes(String(phrase).toLowerCase()));
+      .filter(phrase => stripMarkup(targetText, targetOpts).toLowerCase().includes(String(phrase).toLowerCase()));
   const warnings = config.warn_phrases
       .filter(Boolean)
-      .filter(phrase => stripMarkup(targetText).toLowerCase().includes(String(phrase).toLowerCase()));
+      .filter(phrase => stripMarkup(targetText, targetOpts).toLowerCase().includes(String(phrase).toLowerCase()));
   // Never downgrades a block and never creates one: a document that fails on
   // real evidence still fails on that, and a coverage gap only turns a would-be
   // 'pass' into 'warn' so the caller is told the gate could not read it.
   // One coverage object, so callers that read `coverage.reason` keep working.
   // A count gap keeps its reason and gains the scope sentence.
-  const countGap = diagnoseCoverage(targetText);
+  const countGap = diagnoseCoverage(targetText, targetOpts);
   const coverage = !languageGap ? countGap
     : countGap ? { ...countGap, message: `${countGap.message} ${languageGap}` }
       : { reason: 'scope-not-checked', message: languageGap, spans: [] };
@@ -2188,14 +2221,14 @@ function isPlanAssertion(span, sentence) {
  * @param {string[]} planTexts
  * @returns {Set<string>}
  */
-function plannedClaims(targetText, planTexts) {
+function plannedClaims(targetText, planTexts, { format } = {}) {
   const planText = planTexts.filter(text => typeof text === 'string').join('\n');
   if (!planText.trim()) return new Set();
   // keepPlanHorizons: answers often say "In my first 6 months I will…"; the
   // target-side horizon rule still drops those from invented claims, but the
   // plan evidence must retain the number so the letter can restate it.
   const inPlans = metricClaims(planText, { keepPlanHorizons: true });
-  const clean = spellNumbers(stripMarkup(targetText, { keepLineBreaks: true }));
+  const clean = spellNumbers(stripMarkup(targetText, { keepLineBreaks: true, format }));
   const forward = new Set();
   const past = new Set();
   for (let i = 0; i < clean.length;) {
@@ -2284,13 +2317,15 @@ function parseCliArgs(args) {
 
 /** Return the command-line usage text. */
 function usage() {
-  return `Usage: node verify-cv-facts.mjs <generated-document.html|md|tex|docx> [--source path] [--config path] [--json]
+  return `Usage: node verify-cv-facts.mjs <generated-document.html|md|tex|docx|docm|dotx> [--source path] [--config path] [--json]
        node verify-cv-facts.mjs --self-test
 
 Checks generated candidate-facing text for unsupported metrics and explicitly asserted
 non-metric facts (employers, titles, tools, delegated-work authorship, scope-verb
 inflation, and unsourced adoption claims) absent from source files.
-A .docx is unzipped first and the text of word/document.xml is what gets checked.
+A Word file (.docx/.docm/.dotx) is unzipped first; body, headers, footers, footnotes
+and endnotes are read as plain text (size-capped). .pdf/.doc/.odt are refused — gate
+the .md/.html source instead. Empty Word files fail instead of passing.
 Default sources: cv.md and article-digest.md.
 A cover letter also reads the answers supplied for that letter, which support
 only a number the letter states as a plan. The rendered letter is not a source.
@@ -2897,6 +2932,7 @@ export function runCli(args = process.argv.slice(2)) {
     const result = verifyFacts(readGeneratedText(targetPath), {
       sourcePaths: parsed.sourcePaths.length ? parsed.sourcePaths : DEFAULT_SOURCES,
       configPath: parsed.configPath,
+      format: isWordGeneratedPath(targetPath) ? 'text' : undefined,
     });
     // On stderr, before any verdict line and regardless of it: with no config
     // the phrase lists are empty, so "passed" below means the phrase check never
