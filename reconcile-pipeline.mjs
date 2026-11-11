@@ -24,13 +24,13 @@
 import { readFileSync, existsSync, readdirSync, copyFileSync, realpathSync, statSync } from 'fs';
 import { join, dirname, resolve, relative, isAbsolute } from 'path';
 import { fileURLToPath } from 'url';
-import * as yaml from 'js-yaml';
 import { normalizeReportLink } from './tracker-links.mjs';
 import { getCareerOpsRoot, getProfilePath } from './path-resolver.mjs';
 import { flagValue, validateFlags } from './lib/cli-flags.mjs';
 import { withPipelineLock, LockTimeoutError } from './pipeline-lock.mjs';
 import { writeFileAtomic } from './tracker-utils.mjs';
 import { sectionKind, processedHeadingFor } from './lib/pipeline-sections.mjs';
+import { loadYaml } from './lib/yaml-document.mjs';
 
 const CAREER_OPS = getCareerOpsRoot();
 const CODEBASE_ROOT = dirname(fileURLToPath(import.meta.url));
@@ -172,7 +172,7 @@ function resolveScore(stateScore, reportFile) {
 
 function readCvOutputFormat() {
   try {
-    const doc = yaml.load(readFileSync(getProfilePath(CAREER_OPS), 'utf8'));
+    const doc = loadYaml(readFileSync(getProfilePath(CAREER_OPS), 'utf8'));
     return String(doc?.cv?.output_format ?? '').trim().toLowerCase();
   } catch {
     return '';

@@ -101,11 +101,11 @@ hand-edited manifest contains duplicates, use the last matching row.
 
 Resolve the row's workspace-relative `pdf` and `html` columns against the
 workspace root (the directory that contains `data/`), matching the base used by
-the manifest writer. Use the `html` column (HTML or tailored `.md`), never the
-indexed `pdf` file, as the readable representation of the attached CV. It is
-usable only when the resolved companion path exists and is a file. Do not guess
-a similarly named file or silently use an artifact belonging to the same
-company but a different report.
+the manifest writer. Use the HTML companion, never the PDF. The `html` column
+may be HTML or the tailored `.md` for a Word row; never read the indexed `pdf`
+file (`.pdf` or `.docx`) as prose. It is usable only when the resolved companion
+path exists and is a file. Do not guess a similarly named file or silently use
+an artifact belonging to the same company but a different report.
 
 The readable companion is an **alignment guide, not a new source of truth**. It
 may control which supported bullets are selected and how they are ordered or
