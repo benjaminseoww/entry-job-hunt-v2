@@ -15,7 +15,7 @@
 4. **अंत में**, summary table display करें:
 
 ```
-| # | Company | Role | Score | PDF | Recommended Action |
+| # | Company | Role | Score | CV | Recommended Action |
 ```
 
 ## pipeline.md Format

@@ -15,7 +15,7 @@ Behandler URL'er til opslag, der er samlet i `data/pipeline.md`. Kandidaten tilf
 4. **Til sidst** vis en opsummerende tabel:
 
 ```
-| # | Virksomhed | Rolle | Score | PDF | Anbefalet handling |
+| # | Virksomhed | Rolle | Score | CV | Anbefalet handling |
 ```
 
 ## Format for pipeline.md

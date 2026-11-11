@@ -28,6 +28,10 @@
  * explicitly below, each naming its reader — a hardcoded list can only ever
  * chase reality, and that list is short and auditable.
  *
+ * Nested values such as cv.output_format are documented in the example
+ * ("html", "latex", "text", "docx") and are not enumerated here. A profile
+ * with output_format: docx is accepted the same as html/latex/text.
+ *
  * Usage:
  *   node validate-profile.mjs [--profile <path>] [--json] [--self-test]
  *

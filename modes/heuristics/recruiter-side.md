@@ -1,6 +1,6 @@
 # Recruiter-Side Application Heuristics
 
-Use these rules for candidate-facing documents and answers: PDF summaries,
+Use these rules for candidate-facing documents and answers: CV summaries,
 bullets, cover letters, form answers, LinkedIn messages, recruiter scripts, and
 interview prep. They do not apply to internal evaluation reports unless a mode
 explicitly asks for analysis.
@@ -23,7 +23,7 @@ explicitly asks for analysis. Never invent evidence to close a doubt.
 
 ## Six-Second Clarity Gate
 
-For every CV/PDF and cover letter, the top third must make the target fit
+For every tailored CV and cover letter, the top third must make the target fit
 impossible to miss:
 
 - target role/archetype

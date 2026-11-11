@@ -28,7 +28,7 @@ If the input is a **URL** (not pasted JD text), follow this strategy to extract 
 
 ## Step 0.5 — Liveness gate
 
-Before running any evaluation, confirm the posting is still live. The Step 0 Playwright snapshot already holds the evidence — judge it now, before spending tokens on the A-G evaluation, the report, or a PDF. A 404/expired page silently served as a static fallback ("position filled", empty shell) otherwise scores a full evaluation against phantom content.
+Before running any evaluation, confirm the posting is still live. The Step 0 Playwright snapshot already holds the evidence — judge it now, before spending tokens on the A-G evaluation, the report, or a tailored CV. A 404/expired page silently served as a static fallback ("position filled", empty shell) otherwise scores a full evaluation against phantom content.
 
 1. From the Step 0 snapshot/fetched content, classify the posting:
    - **JD unavailable:** a loading skeleton or login/error shell is unconfirmed, even with a title and Apply button. For LinkedIn, apply the LinkedIn JD loading guard without another navigation; for other sources use the iframe check and Step 0 fallbacks. Stop until a real JD is supplied. This is not closed posting evidence.
@@ -48,7 +48,7 @@ On a hit, **stop before Step 1** and surface the candidate's own recorded decisi
 
 ## Step 0.7 — Dealbreaker gate
 
-Apply `modes/oferta.md` → **Dealbreaker gate** before Step 1. On a hit, stop before Step 1 and write no report or PDF unless the candidate answers yes. With the candidate present, ask. In a headless run, write the gate's SKIP tracker row and end on its `needs_confirmation` line, unless the posting is agency-mediated, in which case the agency handoff below comes first and nothing is written.
+Apply `modes/oferta.md` → **Dealbreaker gate** before Step 1. On a hit, stop before Step 1 and write no report or CV unless the candidate answers yes. With the candidate present, ask. In a headless run, write the gate's SKIP tracker row and end on its `needs_confirmation` line, unless the posting is agency-mediated, in which case the agency handoff below comes first and nothing is written.
 
 ## Step 1 — A-G Evaluation
 
@@ -63,7 +63,7 @@ The evaluation inherits `oferta`'s bounded research budget. Company, compensatio
 Save the full evaluation in `reports/{###}-{company-slug}-{YYYY-MM-DD}.md` (see format in `modes/oferta.md`).
 Include Block G in the saved report. Add **URL:** {url} and **Legitimacy:** {tier} to the report header.
 
-## Step 3 — Generate PDF
+## Step 3 — Generate CV
 
 Read `config/profile.yml`. Check `cv.output_format`:
 
@@ -110,6 +110,6 @@ If the final score is >= 4.5, generate a draft of responses for the application 
 
 ## Step 5 — Update Tracker
 
-Record it in the tracker the way `oferta` does ("Record in tracker"): a tracker-addition TSV merged by `node merge-tracker.mjs`, never a row written into `data/applications.md` by hand. Fill every field, including the Report link and PDF as ✅.
+Record it in the tracker the way `oferta` does ("Record in tracker"): a tracker-addition TSV merged by `node merge-tracker.mjs`, never a row written into `data/applications.md` by hand. Fill every field, including the Report link and the CV cell as ✅.
 
 **If an artifact-generation step fails after the JD and gates are resolved**, continue with the next ones and mark the failed step as pending in the tracker. An unavailable JD or unresolved liveness/confirmation gate stops the pipeline before evaluation and all artifact/tracker writes.

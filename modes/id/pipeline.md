@@ -15,7 +15,7 @@ Memproses URL lowongan yang menumpuk di `data/pipeline.md`. Kandidat menambahkan
 4. **Di akhir**, tampilkan tabel ringkasan:
 
 ```text
-| # | Perusahaan | Role | Score | PDF | Tindakan yang disarankan |
+| # | Perusahaan | Role | Score | CV | Tindakan yang disarankan |
 ```
 
 ## Format pipeline.md

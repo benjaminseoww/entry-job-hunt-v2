@@ -244,7 +244,7 @@ Ask the user if they want to act on any recommendations:
 
 > "Want me to apply any of these recommendations? I can:
 > - Update `portals.yml` to filter out geo-restricted roles
-> - Set a score threshold in `_profile.md` for PDF generation (only when `scoreThreshold.sufficientSample` is true)
+> - Set a score threshold in `_profile.md` for CV generation (only when `scoreThreshold.sufficientSample` is true)
 > - Adjust archetype targeting based on what's converting
 > - Realign targeting from the session signal — add the under-targeted archetype X to `modes/_profile.md` and reweight `portals.yml` `title_filter.positive` (if Step 1b ran)
 >

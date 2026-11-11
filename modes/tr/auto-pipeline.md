@@ -18,7 +18,7 @@ Girdi bir **URL** ise (yapıştırılmış JD metni değilse), içeriği çıkar
 
 ## Adım 0.5 — Geçerlilik (Liveness) Kontrolü
 
-Herhangi bir değerlendirme yapmadan önce ilanın hala yayında olduğunu onaylayın. Adım 0'daki Playwright anlık görüntüsü kanıtı barındırır — bunu şimdi, A-G değerlendirmesine, rapora veya PDF'ye token harcamadan önce yargılayın. Aksi halde statik bir yedek olarak sessizce sunulan ("pozisyon dolduruldu", boş sayfa) 404/süresi dolmuş bir sayfa, hayalet içeriğe karşı tam bir değerlendirme puanı alır.
+Herhangi bir değerlendirme yapmadan önce ilanın hala yayında olduğunu onaylayın. Adım 0'daki Playwright anlık görüntüsü kanıtı barındırır — bunu şimdi, A-G değerlendirmesine, rapora veya özelleştirilmiş CV'ye token harcamadan önce yargılayın. Aksi halde statik bir yedek olarak sessizce sunulan ("pozisyon dolduruldu", boş sayfa) 404/süresi dolmuş bir sayfa, hayalet içeriğe karşı tam bir değerlendirme puanı alır.
 
 1. Adım 0'daki anlık görüntü/getirilen içerikten ilanı sınıflandırın:
    - **Aktif ilan kanıtı:** başlık/rol + gerçek bir iş tanımı veya başvuru/uygulama yolu
@@ -37,11 +37,13 @@ Bu kontrol çözülene kadar Adım 1'e geçmeyin.
 Tam değerlendirmeyi `reports/{###}-{sirket-kisa-adi}-{YYYY-AA-GG}.md` konumuna kaydedin (format için `modes/tr/is-ilani.md` dosyasına bakın).
 Kaydedilen rapora G Blok'u ekleyin. Rapor başlığına **URL:** {url} ve **Meşruiyet:** {tier} ekleyin.
 
-## Adım 3 — PDF Oluştur
+## Adım 3 — CV Oluştur
 
 `config/profile.yml` dosyasını okuyun. `cv.output_format` alanını kontrol edin:
 
 - `"latex"` ise, tam süreci `modes/latex.md` üzerinden yürütün
+- `"text"` ise, tam süreci `modes/text.md` üzerinden yürütün
+- `"docx"` ise, tam süreci `modes/docx.md` üzerinden yürütün
 - Değilse (varsayılan), tam süreci `modes/pdf.md` üzerinden yürütün
 
 ## Adım 4 — Başvuru Yanıtları Taslağı (yalnızca puan >= 4.5 ise)

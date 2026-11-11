@@ -52,7 +52,7 @@ node outcome.mjs <tracker#|company> <outcome_type> [--stage "..."] [--feedback "
 - `--cv "..."`: Custom CV file path (defaults to `cv.md`)
 - `--cover "..."`: Custom cover letter file path (if available)
 - `--url "..."`: Job posting URL (overrides auto-detection from tracker notes)
-- `--clean-output`: Once the tailored CV is archived, remove its generated PDF/HTML from `output/` (see below)
+- `--clean-output`: Once the tailored CV is archived, remove its generated CV files from `output/` (see below)
 - `--dry-run`: Preview outcome logging steps and tracker updates without writing files
 - `--json`: Format the stdout output as machine-readable JSON
 
@@ -75,7 +75,7 @@ Each invocation creates or appends to `data/outcomes/{num}_{company_slug}_{role_
 
 ## `output/` Cleanup (`--clean-output`, opt-in, #2653)
 
-`output/` accumulates the tailored PDF/HTML generated at evaluation time for every application, including ones that have since concluded. Passing `--clean-output` removes the tailored PDF/HTML for *this* row from `output/` once its outcome has been recorded — but only after the archive is verified, never as a bare delete:
+`output/` accumulates the tailored CV files generated at evaluation time for every application, including ones that have since concluded. Passing `--clean-output` removes the tailored CV files for *this* row from `output/` once its outcome has been recorded — but only after the archive is verified, never as a bare delete:
 
 1. Archives the CV to `submitted_cv.pdf`, `submitted_cv.docx`, or `submitted_cv.md` from the resolved file's extension (already happens by default) and, only when `--clean-output` is set, the index `html` companion to `submitted_cv.html` or `submitted_cv.md`.
 2. Verifies each archived copy exists in `data/outcomes/{num}_{company_slug}_{role_slug}/` and matches the `output/` original **byte-for-byte (sha256)** — a size check alone can't tell two same-length renders apart, so this hashes both files the same way `tracker.mjs` and `seed-fixture.mjs` already do.
