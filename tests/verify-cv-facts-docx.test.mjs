@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateDocx } from '../generate-docx.mjs';
-import { extractDocxText, unescapeXml, MAX_DOCX_TEXT_BYTES, MAX_HEADER_FOOTER_PARTS } from '../lib/docx-text.mjs';
+import { extractDocxText, unescapeXml, MAX_DOCX_TEXT_BYTES, MAX_HEADER_FOOTER_PARTS, MAX_NOTES_PARTS } from '../lib/docx-text.mjs';
 import { readZip, readZipEntries, writeZip, MAX_ZIP_ENTRY_BYTES } from '../lib/docx-zip.mjs';
 import { readGeneratedText, verifyFacts } from '../verify-cv-facts.mjs';
 
@@ -436,7 +436,16 @@ test('a NUL-bearing file without a Word extension is refused', () => {
   withDir('career-ops-facts-docx-nul-', (dir) => {
     const file = join(dir, 'cv.md');
     writeFileSync(file, Buffer.from('Led a team of 40\0 engineers.'));
-    assert.throws(() => readGeneratedText(file), /binary file/);
+    assert.throws(() => readGeneratedText(file), /NUL bytes \(UTF-16\?\)/);
+  });
+});
+
+test('UTF-16 HTML with a BOM is read as text', () => {
+  withDir('career-ops-facts-docx-utf16-', (dir) => {
+    const html = '<html><body>Led a team of 40 engineers.</body></html>';
+    const file = join(dir, 'cv.html');
+    writeFileSync(file, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(html, 'utf16le')]));
+    assert.match(readGeneratedText(file), /Led a team of 40 engineers/);
   });
 });
 
@@ -447,6 +456,20 @@ test('too many header parts fail with a clear error', () => {
   }
   const zip = packDocx(parts);
   assert.throws(() => extractDocxText(zip), /too many header\/footer parts/);
+});
+
+test('too many notes parts fail quickly with a clear error', () => {
+  const parts = { 'word/document.xml': wmlDocument('w', paragraph('w', t('w', 'Hello'))) };
+  for (let i = 1; i <= 200; i++) {
+    parts[`word/endnotes${i}.xml`] = `<w:endnotes xmlns:w="${WML}">${paragraph('w', t('w', 'n'))}</w:endnotes>`;
+  }
+  const zip = packDocx(parts);
+  const start = Date.now();
+  assert.throws(
+    () => extractDocxText(zip),
+    new RegExp(`too many notes parts \\(200; max ${MAX_NOTES_PARTS}\\)`),
+  );
+  assert.ok(Date.now() - start < 500, 'notes cap took too long');
 });
 
 test('inflated Word parts across the document hit a total budget', () => {

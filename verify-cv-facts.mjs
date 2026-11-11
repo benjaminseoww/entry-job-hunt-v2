@@ -425,9 +425,26 @@ export function isWordGeneratedPath(path) {
  * @param {string} path
  * @returns {string}
  */
-function looksLikeZipOrBinary(buf) {
-  if (buf.length >= 4 && buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04) return true;
-  return buf.includes(0);
+function looksLikeZip(buf) {
+  return buf.length >= 4 && buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04;
+}
+
+function decodeGeneratedText(buf) {
+  if (looksLikeZip(buf)) {
+    throw new Error('refusing a zip or binary file without a Word extension');
+  }
+  // Word's "Save as HTML" writes UTF-16 with a BOM. Read that as text instead
+  // of treating the NULs as a zip/binary refusal.
+  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
+    return buf.subarray(2).toString('utf16le');
+  }
+  if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) {
+    return new TextDecoder('utf-16be').decode(buf.subarray(2));
+  }
+  if (buf.includes(0)) {
+    throw new Error('contains NUL bytes (UTF-16?)');
+  }
+  return buf.toString('utf-8');
 }
 
 export function readGeneratedText(path) {
@@ -446,11 +463,7 @@ export function readGeneratedText(path) {
       throw new Error(`Corrupt .docx: ${msg}`);
     }
   }
-  const buf = readFileSync(path);
-  if (looksLikeZipOrBinary(buf)) {
-    throw new Error('refusing a zip or binary file without a Word extension');
-  }
-  return buf.toString('utf-8');
+  return decodeGeneratedText(readFileSync(path));
 }
 
 // Unicode decimal-digit blocks, by the code point of their zero. Every claim

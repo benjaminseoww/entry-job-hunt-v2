@@ -138,7 +138,7 @@ function writeDocxAtomically(realParent, name, buffer) {
  * Generate and verify one document.
  *
  * @param {{input: string, output: string, template?: string, skipFactCheck?: boolean}} args
- * @returns {{ok: true, output: string, bytes: number, sections: number, warning?: string} | {ok: false, error: string, missing?: string[], extra?: string[]}}
+ * @returns {{ok: true, output: string, bytes: number, sections: number, factCheck: {verdict: 'pass'|'skipped', reason?: string}, warning?: string} | {ok: false, error: string, missing?: string[], extra?: string[]}}
  */
 export function generateDocx({ input, output, template = 'garamond', skipFactCheck = false }) {
   if (!/^[a-z0-9][a-z0-9-]*$/i.test(template)) return { ok: false, error: `Invalid template name: ${template}` };
@@ -183,10 +183,15 @@ export function generateDocx({ input, output, template = 'garamond', skipFactChe
     };
   }
 
-  if (!skipFactCheck) {
+  let factCheck;
+  if (skipFactCheck) {
+    factCheck = { verdict: 'skipped', reason: '--skip-fact-check' };
+  } else {
     const root = getCareerOpsRoot();
     const cvPath = join(root, 'cv.md');
-    if (existsSync(cvPath)) {
+    if (!existsSync(cvPath)) {
+      factCheck = { verdict: 'skipped', reason: `no cv.md in ${root}` };
+    } else {
       try {
         assertFacts(markdown, {
           sourcePaths: [cvPath, join(root, 'article-digest.md')],
@@ -194,6 +199,7 @@ export function generateDocx({ input, output, template = 'garamond', skipFactChe
           label: basename(input),
           format: 'text',
         });
+        factCheck = { verdict: 'pass' };
       } catch (error) {
         return { ok: false, error: error.message };
       }
@@ -223,6 +229,7 @@ export function generateDocx({ input, output, template = 'garamond', skipFactChe
       output: out,
       bytes: built.buffer.length,
       sections: built.model.sections.length,
+      factCheck,
       ...(warning ? { warning } : {}),
     };
   } catch (error) {
@@ -251,6 +258,9 @@ async function main() {
     return;
   }
   const result = generateDocx({ input: positional[0], output: positional[1], template, skipFactCheck });
+  if (result.factCheck?.verdict === 'skipped') {
+    console.error(`fact gate skipped: ${result.factCheck.reason}`);
+  }
   if (json) console.log(JSON.stringify(result, null, 2));
   else if (result.ok) {
     console.log(`Wrote ${result.output} (${result.bytes} bytes, ${result.sections} sections); content verified against the markdown`);
