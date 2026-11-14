@@ -626,7 +626,7 @@ var Tr = Catalog{
 	ViewLabel:          "[Görünüm: %s]",
 	ShownCount:         "%d gösterilen",
 	ColReport:          "RAP",
-	ColPDF:             "Özgeçmiş",
+	ColPDF:             "CV",
 
 	// Sort & view modes
 	SortScore:    "puan",

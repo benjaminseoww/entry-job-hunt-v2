@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"regexp"
 	"testing"
+	"unicode/utf8"
 )
 
 // Every string the TUI renders must exist in every language.
@@ -120,10 +121,18 @@ func TestCVColumnLabelsFollowD5(t *testing.T) {
 	if En.ColPDF != "CV" || En.HelpOpenPDF != " open CV  " || En.HelpRegenPDF != " regen CV  " {
 		t.Fatalf("English CV labels drifted: ColPDF=%q HelpOpenPDF=%q HelpRegenPDF=%q", En.ColPDF, En.HelpOpenPDF, En.HelpRegenPDF)
 	}
-	if Tr.ColPDF != "Özgeçmiş" || Tr.HelpOpenPDF != " Özgeçmişi aç  " || Tr.HelpRegenPDF != " Özgeçmiş üret  " {
+	if Tr.ColPDF != "CV" || Tr.HelpOpenPDF != " Özgeçmişi aç  " || Tr.HelpRegenPDF != " Özgeçmiş üret  " {
 		t.Fatalf("Turkish CV labels drifted: ColPDF=%q HelpOpenPDF=%q HelpRegenPDF=%q", Tr.ColPDF, Tr.HelpOpenPDF, Tr.HelpRegenPDF)
 	}
 	if Es.ColPDF != "CV" || Es.HelpOpenPDF != " abrir CV  " || Es.HelpRegenPDF != " regenerar CV  " {
 		t.Fatalf("Spanish CV labels drifted: ColPDF=%q HelpOpenPDF=%q HelpRegenPDF=%q", Es.ColPDF, Es.HelpOpenPDF, Es.HelpRegenPDF)
+	}
+}
+
+func TestColPDFFitsColumnWidth(t *testing.T) {
+	for name, cat := range catalogs {
+		if n := utf8.RuneCountInString(cat.ColPDF); n > 4 {
+			t.Errorf("%s.ColPDF = %q (%d runes); column width is 4", name, cat.ColPDF, n)
+		}
 	}
 }

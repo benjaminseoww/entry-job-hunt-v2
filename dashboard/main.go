@@ -354,7 +354,7 @@ func runGeneratePDF(msg screens.PipelineGeneratePDFMsg) tea.Cmd {
 			}
 			return screens.PipelinePDFGeneratedMsg{Err: fmt.Sprintf("%s generated but could not open: %v", kind, err)}
 		}
-		return screens.PipelinePDFGeneratedMsg{Path: pdfAbs}
+		return screens.PipelinePDFGeneratedMsg{Path: pdfAbs, Note: indexFailureNote(out)}
 	}
 }
 
@@ -369,6 +369,18 @@ func summarizeCmdError(err error, out []byte) string {
 		}
 	}
 	return err.Error()
+}
+
+// indexFailureNote extracts generate-docx.mjs's non-fatal index error
+// ("generate-docx: index failed: …"). The generator still exits 0 after
+// writing the file, so CombinedOutput success would otherwise hide it.
+func indexFailureNote(out []byte) string {
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.Contains(line, "index failed:") {
+			return strings.TrimSpace(line)
+		}
+	}
+	return ""
 }
 
 func (m appModel) View() string {

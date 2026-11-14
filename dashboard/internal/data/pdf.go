@@ -202,21 +202,14 @@ func LoadPDFManifest(careerOpsPath string) PDFManifest {
 var rePDFDate = regexp.MustCompile(`(\d{4}-\d{2}-\d{2})\.(?:pdf|docx)$`)
 
 // WordCV reports whether an index row is a Word document. The pdf column
-// holds the .docx path; the html column holds the tailored .md.
+// holds the .docx path; the html column holds the tailored .md. The output
+// extension decides; the companion is consulted only when the pdf column is
+// empty (an unindexed glob with no recorded output path).
 func WordCV(pdfPath, htmlPath string) bool {
-	return strings.EqualFold(filepath.Ext(pdfPath), ".docx") || strings.EqualFold(filepath.Ext(htmlPath), ".md")
-}
-
-// companionOutputPath maps a readable CV source onto the generated file
-// written next to it. Tailored HTML produces a PDF; tailored markdown
-// produces a Word document.
-func companionOutputPath(source string) string {
-	ext := filepath.Ext(source)
-	base := strings.TrimSuffix(source, ext)
-	if strings.EqualFold(ext, ".md") {
-		return base + ".docx"
+	if pdfPath != "" {
+		return strings.EqualFold(filepath.Ext(pdfPath), ".docx")
 	}
-	return base + ".pdf"
+	return strings.EqualFold(filepath.Ext(htmlPath), ".md")
 }
 
 func globTailoredCVs(careerOpsPath string) []string {
@@ -352,5 +345,5 @@ func ResolveHTML(careerOpsPath string, app model.CareerApplication) (htmlPath, p
 	}
 	sortPDFsNewestFirst(careerOpsPath, matches)
 	relHTML := matches[0]
-	return relHTML, companionOutputPath(relHTML)
+	return relHTML, strings.TrimSuffix(relHTML, ".html") + ".pdf"
 }

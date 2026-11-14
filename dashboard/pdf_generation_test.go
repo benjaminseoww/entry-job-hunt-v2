@@ -30,6 +30,9 @@ func init() {
 		if err := os.WriteFile(capture, payload, 0o600); err != nil {
 			os.Exit(1)
 		}
+		if extra := os.Getenv("CAREER_OPS_TEST_PDF_STDERR"); extra != "" {
+			os.Stderr.WriteString(extra + "\n")
+		}
 		if len(os.Args) < 2 || !filepath.IsAbs(os.Args[1]) {
 			os.Stderr.WriteString("generator script must be resolved from the checkout\n")
 			os.Exit(1)
@@ -190,5 +193,37 @@ func TestRunGeneratePDFRejectsDataOnlyDocxScript(t *testing.T) {
 	})().(screens.PipelinePDFGeneratedMsg)
 	if !strings.Contains(msg.Err, "need generate-docx.mjs in the career-ops checkout") {
 		t.Fatalf("data-only docx script must not run: %+v", msg)
+	}
+}
+
+func TestRunGeneratePDFSurfacesIndexFailureOnSuccess(t *testing.T) {
+	root := t.TempDir()
+	capture := filepath.Join(t.TempDir(), "capture.json")
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(binDir, "node"), binary, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("CAREER_OPS_TEST_PDF_CAPTURE", capture)
+	t.Setenv("CAREER_OPS_TEST_PDF_STDERR", "generate-docx: index failed: EISDIR")
+	previous := runOpenCommand
+	t.Cleanup(func() { runOpenCommand = previous })
+	runOpenCommand = func(name string, args ...string) error { return nil }
+	msg := runGeneratePDF(screens.PipelineGeneratePDFMsg{
+		CareerOpsPath: root, HTMLPath: "output/cv.md", PDFPath: "output/cv.docx", ReportNumber: "001",
+	})().(screens.PipelinePDFGeneratedMsg)
+	if msg.Err != "" {
+		t.Fatalf("index failure must not fail the generation: %+v", msg)
+	}
+	if !strings.Contains(msg.Note, "index failed: EISDIR") {
+		t.Fatalf("expected index-failed note, got %+v", msg)
 	}
 }

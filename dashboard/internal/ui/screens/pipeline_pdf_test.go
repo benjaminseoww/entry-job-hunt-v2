@@ -54,8 +54,11 @@ func TestPDFKeyFlashesWhenNoPDFExists(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected no command when no PDF matches")
 	}
-	if updated.flash == "" {
-		t.Fatal("expected a flash notice when no PDF matches")
+	if !strings.Contains(updated.flash, "No CV found") {
+		t.Fatalf("expected a no-CV flash, got %q", updated.flash)
+	}
+	if !strings.Contains(updated.flash, "/career-ops pdf or /career-ops docx") {
+		t.Fatalf("expected both generators in the flash, got %q", updated.flash)
 	}
 	if updated.pdfPicker {
 		t.Fatal("expected no picker when no PDF matches")
@@ -207,11 +210,15 @@ func TestRegenerateKeyEmitsGenerateMsgFromManifest(t *testing.T) {
 
 	// Outcome message updates the flash.
 	done, _ := updated.Update(PipelinePDFGeneratedMsg{Path: "/abs/cv.pdf"})
-	if !strings.Contains(done.flash, "cv.pdf") {
-		t.Fatalf("expected success flash to name the PDF, got %q", done.flash)
+	if !strings.Contains(done.flash, "CV regenerated and opened") || !strings.Contains(done.flash, "cv.pdf") {
+		t.Fatalf("expected success flash to name the CV, got %q", done.flash)
+	}
+	noted, _ := updated.Update(PipelinePDFGeneratedMsg{Path: "/abs/cv.docx", Note: "generate-docx: index failed: EISDIR"})
+	if !strings.Contains(noted.flash, "CV regenerated and opened") || !strings.Contains(noted.flash, "index failed:") {
+		t.Fatalf("expected success flash to include the index warning, got %q", noted.flash)
 	}
 	failed, _ := updated.Update(PipelinePDFGeneratedMsg{Err: "node not found"})
-	if !strings.Contains(failed.flash, "node not found") {
+	if !strings.Contains(failed.flash, "CV regeneration failed") || !strings.Contains(failed.flash, "node not found") {
 		t.Fatalf("expected failure flash to carry the error, got %q", failed.flash)
 	}
 }
@@ -324,5 +331,24 @@ func TestRegenerateKeyFlashesWhenDocxMarkdownMissing(t *testing.T) {
 	}
 	if !strings.Contains(updated.flash, "Source markdown missing") {
 		t.Fatalf("expected missing-markdown flash, got %q", updated.flash)
+	}
+}
+
+func TestRegenerateKeyFlashesForUnindexedDocx(t *testing.T) {
+	root := t.TempDir()
+	writePDFFixture(t, root, "output/cv-jane-doe-globex-2026-06-05.docx")
+	writePDFFixture(t, root, "output/cv-jane-doe-globex-2026-06-05.md")
+	pm := newPDFTestModel(t, root, []model.CareerApplication{
+		{Company: "Globex", Role: "Engineer", Status: "Evaluated", Score: 4, HasScore: true},
+	})
+	u, cmd := pm.Update(keyMsg("D"))
+	if cmd != nil {
+		t.Fatalf("expected no generate command for an unindexed Word CV, got %#v", cmd())
+	}
+	if !strings.Contains(u.flash, "No index row for this Word CV") {
+		t.Fatalf("expected Word-specific unindexed flash, got %q", u.flash)
+	}
+	if strings.Contains(u.flash, "/career-ops pdf") {
+		t.Fatalf("unindexed Word CV must not recommend /career-ops pdf, got %q", u.flash)
 	}
 }

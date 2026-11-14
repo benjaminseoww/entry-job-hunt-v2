@@ -3,6 +3,7 @@ package screens
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/santifer/career-ops/dashboard/internal/model"
@@ -63,9 +64,12 @@ func TestPDFKeysKeepDocxCVWhenCoverWasGeneratedLater(t *testing.T) {
 	if got := cmd().(PipelineOpenPDFMsg).Path; got != filepath.Join(root, filepath.FromSlash(docx)) {
 		t.Fatalf("opened cover instead of Word CV: %s", got)
 	}
-	_, cmd = pm.Update(keyMsg("D"))
+	updated, cmd := pm.Update(keyMsg("D"))
 	if cmd == nil {
 		t.Fatal("expected CV generation command")
+	}
+	if !strings.Contains(updated.flash, "generate-docx.mjs") {
+		t.Fatalf("expected generate-docx.mjs flash, got %q", updated.flash)
 	}
 	if got := cmd().(PipelineGeneratePDFMsg); got.PDFPath != docx || got.HTMLPath != md {
 		t.Fatalf("regenerated cover instead of Word CV: %+v", got)
