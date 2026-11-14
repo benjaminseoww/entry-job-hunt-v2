@@ -88,7 +88,7 @@ const pipelineRouting = formatAt !== -1 && gateAt > formatAt ? pipeline.slice(fo
 const pipelineMispaired = mispairings(pipelineRouting);
 
 if (formatAt !== -1 && pipelineMispaired.length === 0) {
-  pass('modes/pipeline.md routes CV output on cv.output_format to the same three mode files');
+  pass('modes/pipeline.md routes CV output on cv.output_format to the same four mode files');
 } else {
   fail(`modes/pipeline.md ignores cv.output_format when choosing the CV artifact (${
     [formatAt === -1 ? 'missing cv.output_format' : null, ...pipelineMispaired]

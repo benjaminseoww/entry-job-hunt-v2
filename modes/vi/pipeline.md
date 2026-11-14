@@ -66,6 +66,8 @@ Liệt kê riêng các mục `needs_confirmation` kèm URL và câu hỏi, khôn
 ## Processed
 - [x] #143 | https://jobs.example.com/posting/789 | Acme Corp | AI PM | 4.2/5 | PDF ✅
 - [x] #144 | https://boards.greenhouse.io/xyz/jobs/012 | BigCo | SA | 2.1/5 | PDF ❌
+- [x] #145 | https://jobs.example.com/posting/790 | Acme Corp | Staff Engineer | 4.4/5 | Word ✅
+- [x] #146 | https://jobs.example.com/posting/791 | Acme Corp | PM | 2.4/5 | Word ❌
 ```
 
 > **Luôn ghi tiêu đề mục bằng tiếng Anh: `## Pending` và `## Processed`.** `scan.mjs`, `sync-batch-input.mjs` và `reconcile-pipeline.mjs` đọc tiêu đề từ cùng một bảng trong `lib/pipeline-sections.mjs`, và bảng đó không có tiêu đề tiếng Việt; một tiêu đề tiếng Việt như "Đang chờ" sẽ khiến scanner không tìm thấy mục và ghi sai chỗ. Khi đọc, vẫn chấp nhận tiêu đề bằng ngôn ngữ khác nếu tệp hiện có đã viết như vậy. Khi ghi, giữ nguyên tiêu đề có trong bảng đó, như `## Offen` hay `## En attente`. Chỉ khi tệp có tiêu đề không có trong bảng, như tiêu đề tiếng Việt, mới đổi chúng thành `## Pending` và `## Processed` trước khi ghi và báo cho người dùng biết đã đổi; không giữ nguyên tiêu đề scanner không đọc được.

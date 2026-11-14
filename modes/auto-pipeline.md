@@ -110,6 +110,6 @@ If the final score is >= 4.5, generate a draft of responses for the application 
 
 ## Step 5 — Update Tracker
 
-Record it in the tracker the way `oferta` does ("Record in tracker"): a tracker-addition TSV merged by `node merge-tracker.mjs`, never a row written into `data/applications.md` by hand. Fill every field, including the Report link and the CV cell as ✅.
+Record it in the tracker the way `oferta` does ("Record in tracker"): a tracker-addition TSV merged by `node merge-tracker.mjs`, never a row written into `data/applications.md` by hand. Fill every field, including the Report link and the CV cell (✅ when a CV was generated, ❌ otherwise).
 
 **If an artifact-generation step fails after the JD and gates are resolved**, continue with the next ones and mark the failed step as pending in the tracker. An unavailable JD or unresolved liveness/confirmation gate stops the pipeline before evaluation and all artifact/tracker writes.

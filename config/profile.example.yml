@@ -173,7 +173,8 @@ spend_tier: standard
 # (Optional) Paper size for every generated PDF: "letter", "a4" or "auto".
 # One setting for the CV, the cover letter and the HTML body width, so they
 # cannot disagree. Absent means letter. An explicit --format flag or a payload
-# page_format still wins for a single render.
+# page_format still wins for a single render. Word (docx) output is US Letter
+# only and ignores page_format.
 # "auto" picks the sheet from the employer's country (payload `country`, or
 # --country on the renderers): Letter where Unicode CLDR lists it as the
 # primary size, A4 everywhere else, letter when the country is unknown.
