@@ -151,9 +151,10 @@ test("resolveDocxPaths: names md and docx under output/", () => {
     writeFileSync(join(root, "reports", "018-acme-2026-01-10.md"), "# Acme\n");
     const result = resolveDocxPaths("018", "2026-01-10", root, () => join(root, "reports", `018-acme-2026-01-10.md`));
     assert.equal(result.ok, true);
-    assert.match(result.paths.md, /output\/cv-candidate-018-acme-2026-01-10\.md$/);
-    assert.match(result.paths.finalDocx, /output\/cv-candidate-018-acme-2026-01-10\.docx$/);
-    assert.match(result.paths.scratchMd, /\.career-ops-web\/pdf-tmp\/cv-web-018-[0-9a-f]{16}\.md$/);
+    assert.equal(result.paths.md, join(root, "output", "cv-candidate-018-acme-2026-01-10.md"));
+    assert.equal(result.paths.finalDocx, join(root, "output", "cv-candidate-018-acme-2026-01-10.docx"));
+    assert.equal(dirname(result.paths.scratchMd), join(root, ".career-ops-web", "pdf-tmp"));
+    assert.match(result.paths.scratchMd.replaceAll("\\", "/"), /cv-web-018-[0-9a-f]{16}\.md$/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
