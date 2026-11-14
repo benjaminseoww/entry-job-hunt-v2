@@ -198,18 +198,51 @@ func LoadPDFManifest(careerOpsPath string) PDFManifest {
 }
 
 // rePDFDate extracts the trailing YYYY-MM-DD stamp from generated CV
-// filenames (cv-{candidate}-{slug}-{date}.pdf).
-var rePDFDate = regexp.MustCompile(`(\d{4}-\d{2}-\d{2})\.pdf$`)
+// filenames (cv-{candidate}-{slug}-{date}.pdf or .docx).
+var rePDFDate = regexp.MustCompile(`(\d{4}-\d{2}-\d{2})\.(?:pdf|docx)$`)
 
-// ResolvePDFs returns candidate PDF paths (relative to careerOpsPath) for an
-// application, best match first.
+// WordCV reports whether an index row is a Word document. The pdf column
+// holds the .docx path; the html column holds the tailored .md.
+func WordCV(pdfPath, htmlPath string) bool {
+	return strings.EqualFold(filepath.Ext(pdfPath), ".docx") || strings.EqualFold(filepath.Ext(htmlPath), ".md")
+}
+
+// companionOutputPath maps a readable CV source onto the generated file
+// written next to it. Tailored HTML produces a PDF; tailored markdown
+// produces a Word document.
+func companionOutputPath(source string) string {
+	ext := filepath.Ext(source)
+	base := strings.TrimSuffix(source, ext)
+	if strings.EqualFold(ext, ".md") {
+		return base + ".docx"
+	}
+	return base + ".pdf"
+}
+
+func globTailoredCVs(careerOpsPath string) []string {
+	var all []string
+	for _, pattern := range []string{"cv-*.pdf", "cv-*.docx"} {
+		globbed, err := filepath.Glob(filepath.Join(careerOpsPath, "output", pattern))
+		if err != nil {
+			continue
+		}
+		all = append(all, globbed...)
+	}
+	return all
+}
+
+// ResolvePDFs returns candidate CV paths (relative to careerOpsPath) for an
+// application, best match first. Indexed rows are returned as recorded, so a
+// .docx path from the index is used as-is.
 //
 // Precedence:
 //  1. Manifest entry for the application's report number, when the file
-//     still exists. This is exact — generate-pdf.mjs recorded the linkage.
-//  2. Filename match: output/cv-*.pdf whose name contains the kebab-cased
-//     company at hyphen boundaries. This covers every PDF generated before
-//     the manifest existed without matching a longer company's slug.
+//     still exists. This is exact — generate-pdf.mjs / generate-docx.mjs
+//     recorded the linkage.
+//  2. Filename match: output/cv-*.pdf and output/cv-*.docx whose name
+//     contains the kebab-cased company at hyphen boundaries. This covers
+//     files generated before the manifest existed (including unindexed
+//     Word CVs) without matching a longer company's slug.
 //     Multiple matches are all returned (newest first) so the caller can
 //     offer a picker instead of guessing — one company can have several
 //     role-variant CVs from the same day.
@@ -225,13 +258,8 @@ func ResolvePDFs(careerOpsPath string, app model.CareerApplication, manifest PDF
 		return nil
 	}
 
-	globbed, err := filepath.Glob(filepath.Join(careerOpsPath, "output", "cv-*.pdf"))
-	if err != nil {
-		return nil
-	}
-
 	var matches []string
-	for _, p := range globbed {
+	for _, p := range globTailoredCVs(careerOpsPath) {
 		base := strings.ToLower(filepath.Base(p))
 		if matchesCompanySlug(base, slug) {
 			if rel, err := filepath.Rel(careerOpsPath, p); err == nil {
@@ -324,6 +352,5 @@ func ResolveHTML(careerOpsPath string, app model.CareerApplication) (htmlPath, p
 	}
 	sortPDFsNewestFirst(careerOpsPath, matches)
 	relHTML := matches[0]
-	relPDF := strings.TrimSuffix(relHTML, ".html") + ".pdf"
-	return relHTML, relPDF
+	return relHTML, companionOutputPath(relHTML)
 }

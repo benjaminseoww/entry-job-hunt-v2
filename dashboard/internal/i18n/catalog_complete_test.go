@@ -115,3 +115,15 @@ func TestCatalogFieldCountsMatchEnglish(t *testing.T) {
 		}
 	}
 }
+
+func TestCVColumnLabelsFollowD5(t *testing.T) {
+	if En.ColPDF != "CV" || En.HelpOpenPDF != " open CV  " || En.HelpRegenPDF != " regen CV  " {
+		t.Fatalf("English CV labels drifted: ColPDF=%q HelpOpenPDF=%q HelpRegenPDF=%q", En.ColPDF, En.HelpOpenPDF, En.HelpRegenPDF)
+	}
+	if Tr.ColPDF != "Özgeçmiş" || Tr.HelpOpenPDF != " Özgeçmişi aç  " || Tr.HelpRegenPDF != " Özgeçmiş üret  " {
+		t.Fatalf("Turkish CV labels drifted: ColPDF=%q HelpOpenPDF=%q HelpRegenPDF=%q", Tr.ColPDF, Tr.HelpOpenPDF, Tr.HelpRegenPDF)
+	}
+	if Es.ColPDF != "CV" || Es.HelpOpenPDF != " abrir CV  " || Es.HelpRegenPDF != " regenerar CV  " {
+		t.Fatalf("Spanish CV labels drifted: ColPDF=%q HelpOpenPDF=%q HelpRegenPDF=%q", Es.ColPDF, Es.HelpOpenPDF, Es.HelpRegenPDF)
+	}
+}

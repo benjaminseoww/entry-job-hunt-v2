@@ -426,8 +426,8 @@ var En = Catalog{
 	HelpRefresh:    " refresh  ",
 	HelpReport:     " report  ",
 	HelpOpenURL:    " open URL  ",
-	HelpOpenPDF:    " open PDF  ",
-	HelpRegenPDF:   " regen PDF  ",
+	HelpOpenPDF:    " open CV  ",
+	HelpRegenPDF:   " regen CV  ",
 	HelpChange:     " change  ",
 	HelpColumns:    " columns  ",
 	HelpView:       " view  ",
@@ -459,7 +459,7 @@ var En = Catalog{
 	ViewLabel:          "[View: %s]",
 	ShownCount:         "%d shown",
 	ColReport:          "RPT",
-	ColPDF:             "PDF",
+	ColPDF:             "CV",
 
 	// Sort & view modes
 	SortScore:    "score",
@@ -593,8 +593,8 @@ var Tr = Catalog{
 	HelpRefresh:    " yenile  ",
 	HelpReport:     " rapor  ",
 	HelpOpenURL:    " URL aç  ",
-	HelpOpenPDF:    " PDF'i aç  ",
-	HelpRegenPDF:   " PDF üret  ",
+	HelpOpenPDF:    " Özgeçmişi aç  ",
+	HelpRegenPDF:   " Özgeçmiş üret  ",
 	HelpChange:     " durum  ",
 	HelpColumns:    " sütunlar  ",
 	HelpView:       " görünüm  ",
@@ -626,7 +626,7 @@ var Tr = Catalog{
 	ViewLabel:          "[Görünüm: %s]",
 	ShownCount:         "%d gösterilen",
 	ColReport:          "RAP",
-	ColPDF:             "PDF",
+	ColPDF:             "Özgeçmiş",
 
 	// Sort & view modes
 	SortScore:    "puan",
@@ -760,8 +760,8 @@ var Es = Catalog{
 	HelpRefresh:    " actualizar  ",
 	HelpReport:     " informe  ",
 	HelpOpenURL:    " abrir URL  ",
-	HelpOpenPDF:    " abrir PDF  ",
-	HelpRegenPDF:   " regenerar PDF  ",
+	HelpOpenPDF:    " abrir CV  ",
+	HelpRegenPDF:   " regenerar CV  ",
 	HelpChange:     " cambiar  ",
 	HelpColumns:    " columnas  ",
 	HelpView:       " vista  ",
@@ -793,7 +793,7 @@ var Es = Catalog{
 	ViewLabel:          "[Vista: %s]",
 	ShownCount:         "%d mostradas",
 	ColReport:          "INF",
-	ColPDF:             "PDF",
+	ColPDF:             "CV",
 
 	// Sort & view modes
 	SortScore:    "puntuación",
