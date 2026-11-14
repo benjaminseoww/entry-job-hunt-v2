@@ -284,3 +284,6 @@ data/interview-prep/
 .next/
 web/.next/
 web/out/
+
+# Fork: track local-paths.txt so CI sees the fork-owned files (see config/local-paths.example.txt)
+!config/local-paths.txt
