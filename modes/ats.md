@@ -8,7 +8,7 @@ career-ops already *generates* ATS-optimized CVs (see `modes/pdf.md`) and guards
 
 HTML runs every check. `.md` / `.markdown` / `.txt` run the **text-level checks only** (sections, contact info, keywords, length). Layout checks that need HTML (tables/columns, images, fonts, charset, hidden text) are listed as **n/a for markdown** (or plain text), **awarded in full** (50 of 100 points), and do not fail the file. A Word/markdown score is therefore **not comparable** with an HTML score — the same number does not mean the same checks ran.
 
-`.docx` scores those text-level checks on the **document body** (headers, footers, and notes are ignored for contact and headings) plus cheap XML checks for tables, text boxes, multi-column sections, drawings/pictures, and hidden text (`w:vanish` / white / tiny font). Fonts and charset stay **n/a for Word** and are still awarded in full.
+`.docx` scores those text-level checks on the **visible document body** (headers, footers, and notes are ignored for contact and headings; a vanished body email does not count). Cheap XML checks for tables, text boxes, multi-column sections, drawings/pictures, and hidden text run on the **body** only — a footer table, footer logo, or white-on-dark header name is not scored against the body. Fonts and charset stay **n/a for Word** and are still awarded in full.
 
 The mode has **two stages**, because ATS parseability is decided in two places:
 
@@ -111,7 +111,9 @@ A single `display:table` element (as used by the shipped template's certificatio
 
 On `.md` / `.markdown` / `.txt`, the last five rows (layout, images, fonts, charset, hidden text) are **n/a** and **awarded in full** — half the 100-point score — so a markdown file is never failed for missing CSS. They still appear in the JSON as `naChecks` (and as `info` issues whose message contains `n/a for markdown` or `n/a for plain text`). A Word/markdown score is not comparable with an HTML score.
 
-On `.docx`, layout, images, and hidden text **are scored** from the XML (`w:tbl`, text boxes, `w:cols`, `w:drawing`/`w:pict`, `w:vanish` / white / tiny font). Fonts and charset stay **n/a for Word** and are awarded in full. The HTML path is unchanged.
+On `.docx`, layout, images, and hidden text **are scored** from the document-body XML (`w:tbl`, text boxes, `w:cols`, `w:drawing`/`w:pict`, `w:vanish` / `w:specVanish` / `w:webHidden`, white / near-white / `themeColor` `lt1`/`bg1`, tiny font, white `w:highlight`, and the same properties when they live on a style in `word/styles.xml`). Header/footer/notes tables, logos, and white-on-dark names are ignored. Fonts and charset stay **n/a for Word** and are awarded in full. The HTML path is unchanged.
+
+**Known Word hidden-text limits.** Theme `lumMod`/`lumOff` tints, non-white highlights, and revision markup are not treated as hidden. Unstyled two-character CJK/Hangul section titles (학력, 学歴, 技能) are recognized by matching the localized term list, not by letter-case.
 
 ## Keyword coverage (opt-in, advisory)
 

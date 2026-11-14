@@ -9,9 +9,9 @@
  * and a list of concrete, fixable issues. HTML (the output of `pdf` mode, before
  * PDF rendering) runs every check. Markdown (`.md` / `.markdown` / `.txt`) runs
  * the text-level checks only and lists layout checks as n/a. Word (`.docx`)
- * runs those text-level checks on the document body, plus XML checks for
- * tables, text boxes, columns, images, and hidden text; fonts and charset
- * stay n/a.
+ * runs those text-level checks on the visible document body, plus body XML
+ * checks for tables, text boxes, columns, images, and hidden text; fonts
+ * and charset stay n/a.
  *
  * Usage:
  *   node verify-ats.mjs <generated-cv.html|md|markdown|txt|docx>
@@ -491,7 +491,7 @@ function gradeFor(score) {
 const startsWord = (terms) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${terms.join('|')})`, 'u');
 const REQUIRED_SECTIONS = [
   { name: 'Experience', re: startsWord([
-    'experience', 'work history', 'employment',          // en
+    'experience', 'work history', 'work experience', 'employment', // en
     'experien', 'esperienza',                            // es pt fr (folded); it spells it with an s
     'erfahrung', 'berufserfahrung', 'arbeitserfahrung', 'werdegang', // de: compounds put it last
     'ervaring', 'werkervaring', 'loopbaan',              // nl
@@ -546,7 +546,12 @@ const REQUIRED_SECTIONS = [
     '技能', '专业技能', '專業技能',                           // zh zh-TW: 專業技能 does not start with 技能
   ]) },
 ];
-const BONUS_SECTION_RES = [/summary|profile|objective/, /projects/, /certificat|licenses/];
+const BONUS_SECTION_RES = [/professional summary|summary|profile|objective/, /projects/, /certificat|licenses/];
+/** Leftover tokens allowed after stripping a section term ("Work Experience"). */
+const HEADING_QUALIFIERS = new Set([
+  'professional', 'relevant', 'core', 'key', 'technical', 'additional',
+  'career', 'work', 'personal', 'academic',
+]);
 
 /**
  * Score standard section headings. Returns 0–20 points (5 per required
@@ -756,22 +761,15 @@ function auditAts(html, opts = {}) {
 
 /**
  * A Word display heading used only as a fallback when XML pPr did not flag
- * the paragraph. Unicode uppercase (`\p{Lu}`) covers Cyrillic; caseless
- * scripts (CJK, etc.) accept a short line that is entirely a section term.
+ * the paragraph. Known section terms match directly (so 학력 / 学歴 / 技能
+ * and Title Case "Work Experience" count even without Heading styles).
+ * Arbitrary all-caps lines (AWS GCP K8S SRE, TECHFIN CORP, NASA JPL) do not.
  * @param {string} line
  * @returns {boolean}
  */
 function isWordDisplayHeading(line) {
-  if (line.length > 80 || /[.!?]$/.test(line)) return false;
-  const letters = line.match(/\p{L}/gu);
-  if (!letters || letters.length < 3) return false;
-  if (/\p{Lu}/u.test(line) && line === line.toUpperCase() && line !== line.toLowerCase()) {
-    return true;
-  }
-  if (line.length <= 40 && !/\p{Lu}/u.test(line) && !/\p{Ll}/u.test(line)) {
-    return isEntirelySectionHeading(line);
-  }
-  return false;
+  if (line.length > 80 || /[.!?。！？]$/u.test(line)) return false;
+  return isEntirelySectionHeading(line);
 }
 
 /**
@@ -787,16 +785,17 @@ function isEntirelySectionHeading(line) {
     if (!m) return null;
     return (s.slice(0, m.index) + s.slice(m.index + m[0].length)).replace(/[\s:：\-–—|/·•.,]/g, '');
   };
+  const isHeadingRemainder = (remainder) => remainder === '' || HEADING_QUALIFIERS.has(remainder);
   for (const s of REQUIRED_SECTIONS) {
     for (const c of candidates) {
       const remainder = strip(c, s.re);
-      if (remainder === '') return true;
+      if (remainder !== null && isHeadingRemainder(remainder)) return true;
     }
   }
   for (const re of BONUS_SECTION_RES) {
     for (const c of candidates) {
       const remainder = strip(c, re);
-      if (remainder === '') return true;
+      if (remainder !== null && isHeadingRemainder(remainder)) return true;
     }
   }
   return false;
@@ -809,8 +808,8 @@ function foldHeadingList(headings) {
 }
 
 /**
- * Section headings from markdown ATX lines. The Word uppercase fallback runs
- * only when `opts.kind === 'docx'` (markdown already has ATX headings).
+ * Section headings from markdown ATX lines. The Word section-term fallback
+ * runs only when `opts.kind === 'docx'` (markdown already has ATX headings).
  * Same ASCII-fold pair extractHeadings emits, so applySectionScore is shared.
  * @param {string} text
  * @param {{kind?: 'docx'|'md'|'txt'}} [opts]
@@ -832,7 +831,7 @@ function extractPlainHeadings(text, opts = {}) {
       out.push(heading);
       continue;
     }
-    if (allowCaps && isWordDisplayHeading(trimmed)) out.push(trimmed);
+    if (allowCaps && isWordDisplayHeading(trimmed)) out.push(trimmed); // known section terms only
   }
   return foldHeadingList(out);
 }
@@ -897,9 +896,9 @@ function auditAtsPlain(text, opts = {}) {
 }
 
 /**
- * Score a Word CV. Contact and headings are read from the document body;
- * headers/footers/notes are ignored for those checks. Layout, images, and
- * hidden text come from the XML. Fonts and charset stay n/a with credit.
+ * Score a Word CV. Contact and headings are read from the visible document
+ * body; headers/footers/notes are ignored for those checks. Layout, images,
+ * and hidden text come from body XML only. Fonts and charset stay n/a.
  *
  * @param {ReturnType<typeof extractDocxParts>} parts
  * @param {{keywords?: string|string[], role?: string}} [opts]
@@ -922,15 +921,18 @@ function auditAtsDocx(parts, opts = {}) {
   const headingBlob = [...foldHeadingList(xmlHeadings), ...fallback].join(' | ');
   score += applySectionScore(headingBlob, add);
 
-  const emailInBody = EMAIL_RE.test(bodyText);
+  const emailInBody = EMAIL_RE.test(visible);
+  const emailHiddenInBody = !emailInBody && EMAIL_RE.test(bodyText);
   const emailElsewhere = EMAIL_RE.test(parts.headerFooter || '') || EMAIL_RE.test(parts.notes || '');
-  const hasPhone = hasPhoneNumber(bodyText)
+  const hasPhone = hasPhoneNumber(visible)
     || hasPhoneNumber(parts.headerFooter || '')
     || hasPhoneNumber(parts.notes || '');
   if (emailInBody) {
     score += 10;
   } else if (emailElsewhere) {
     add('critical', 'Contact email appears only inside the Word header/footer; ATS routinely drop those regions, so the address is effectively unreachable. Move contact details into the main document body.');
+  } else if (emailHiddenInBody) {
+    add('critical', 'Contact email is hidden in the document body (vanished, white, or tiny text); ATS and recruiters will not see it. Make the address visible in the main document body.');
   } else {
     add('critical', 'No email address found. ATS and recruiters need a parseable contact email in the body of the CV.');
   }

@@ -130,6 +130,17 @@ test('markdown ATX headings and Word uppercase titles are both recognized', () =
   assert.ok(wordHeadings.some((h) => h.includes('work experience')));
   assert.ok(wordHeadings.some((h) => h.includes('education')));
   assert.ok(wordHeadings.some((h) => h.includes('skills')));
+  assert.equal(wordHeadings.some((h) => h.includes('jane smith')), false);
+  // Two-character caseless section titles (Hangul / Han) match the term list.
+  const cjk = extractPlainHeadings('학력\n경력\n기술\n学歴\n技能\n', { kind: 'docx' });
+  assert.ok(cjk.some((h) => h.includes('학력')));
+  assert.ok(cjk.some((h) => h.includes('경력')));
+  assert.ok(cjk.some((h) => h.includes('기술')));
+  assert.ok(cjk.some((h) => h.includes('学歴')));
+  assert.ok(cjk.some((h) => h.includes('技能')));
+  // All-caps acronym / employer lines are not fallback headings.
+  const acronyms = extractPlainHeadings('AWS GCP K8S SRE\nTECHFIN CORP\nNASA JPL\n', { kind: 'docx' });
+  assert.equal(acronyms.length, 0);
   // Sentence-case body copy containing "experience" is not a heading.
   const body = extractPlainHeadings('Senior engineer with a decade of experience designing systems.\n', { kind: 'docx' });
   assert.equal(body.some((h) => h.includes('experience')), false);
@@ -265,6 +276,9 @@ test('modes/ats.md documents the Word text-level path', () => {
   assert.match(mode, /awarded in full/);
   assert.match(mode, /not comparable/);
   assert.match(mode, /\.markdown/);
+  assert.match(mode, /w:webHidden/);
+  assert.match(mode, /styles\.xml/);
+  assert.match(mode, /Known Word hidden-text limits/);
   const docxMode = readFileSync(join(ROOT, 'modes', 'docx.md'), 'utf-8');
   assert.match(docxMode, /verify-ats\.mjs/);
   assert.match(docxMode, /modes\/ats\.md/);
@@ -368,6 +382,33 @@ function injectBeforeSectPr(xml, snippet) {
   return xml.replace('</w:body>', `${snippet}</w:body>`);
 }
 
+function escapeXml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function wmlDoc(inner) {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${inner}</w:body></w:document>`;
+}
+
+function normalP(text, rPr = '') {
+  const rpr = rPr ? `<w:rPr>${rPr}</w:rPr>` : '';
+  return `<w:p><w:pPr><w:pStyle w:val="Normal"/></w:pPr><w:r>${rpr}<w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r></w:p>`;
+}
+
+function stripGeneratorHeadingPr(xml) {
+  return xml
+    .replaceAll('<w:keepNext/>', '')
+    .replace(/<w:pBdr>[\s\S]*?<\/w:pBdr>/g, '');
+}
+
+const ATS_PADDING = 'selectable text for the ATS parser to read. '.repeat(10);
+
+function writePartsDocx(dir, name, entries) {
+  const path = join(dir, name);
+  writeFileSync(path, writeZip(entries));
+  return path;
+}
+
 function missingSectionIssue(json) {
   return json.issues.some((i) => /missing standard section/i.test(i.message));
 }
@@ -396,9 +437,11 @@ test('Title Case and w:caps Word headings still score as sections', () => {
     const src = readFileSync(docx);
     const titlecase = join(dir, 'v-titlecase.docx');
     const wcaps = join(dir, 'v-wcaps.docx');
-    writeFileSync(titlecase, rewriteDocx(src, { 'word/document.xml': titleCaseHeadings }));
+    writeFileSync(titlecase, rewriteDocx(src, {
+      'word/document.xml': (xml) => stripGeneratorHeadingPr(titleCaseHeadings(xml)),
+    }));
     writeFileSync(wcaps, rewriteDocx(src, {
-      'word/document.xml': (xml) => titleCaseHeadings(xml).replaceAll('<w:b/>', '<w:b/><w:caps/>'),
+      'word/document.xml': (xml) => stripGeneratorHeadingPr(titleCaseHeadings(xml)).replaceAll('<w:b/>', '<w:b/><w:caps/>'),
     }));
     for (const file of [titlecase, wcaps]) {
       const proc = runCli(file, ['--json']);
@@ -406,6 +449,66 @@ test('Title Case and w:caps Word headings still score as sections', () => {
       assert.equal(proc.status, 0, `${file}: ${proc.stderr || proc.stdout}`);
       assert.equal(json.pass, true);
       assert.equal(missingSectionIssue(json), false, `${file} missing sections: ${JSON.stringify(json.issues)}`);
+    }
+  });
+});
+
+test('unstyled Title Case and w:caps headings in Normal style still score', () => {
+  withDir((dir) => {
+    const titleInner = [
+      normalP('Jane Smith'),
+      normalP('jane@example.com'),
+      normalP('Work Experience'),
+      normalP(`Staff Engineer, Acme. ${ATS_PADDING}`),
+      normalP('Education'),
+      normalP('B.S. Computer Science, 2018.'),
+      normalP('Skills'),
+      normalP('Python, Kubernetes, Docker'),
+    ].join('');
+    const capsInner = [
+      normalP('Jane Smith'),
+      normalP('jane@example.com'),
+      normalP('Work Experience', '<w:caps/>'),
+      normalP(`Staff Engineer, Acme. ${ATS_PADDING}`),
+      normalP('Education', '<w:caps/>'),
+      normalP('B.S. Computer Science, 2018.'),
+      normalP('Skills', '<w:caps/>'),
+      normalP('Python, Kubernetes, Docker'),
+    ].join('');
+    const titlePath = writePartsDocx(dir, 'unstyled-titlecase.docx', [{ name: 'word/document.xml', data: wmlDoc(titleInner) }]);
+    const capsPath = writePartsDocx(dir, 'unstyled-wcaps.docx', [{ name: 'word/document.xml', data: wmlDoc(capsInner) }]);
+    for (const file of [titlePath, capsPath]) {
+      const parts = extractDocxParts(readFileSync(file));
+      assert.equal(parts.headings.length, 0, `${file} must not rely on XML heading pPr`);
+      const json = auditAtsFromPath(file);
+      assert.equal(missingSectionIssue(json), false, `${file}: ${JSON.stringify(json.issues)}`);
+      assert.equal(isPass(json, DEFAULT_MIN_SCORE), true, `${file} score=${json.score}`);
+    }
+  });
+});
+
+test('unstyled Korean, Japanese, and Chinese Word CVs keep two-character section headings', () => {
+  withDir((dir) => {
+    const locales = [
+      { name: 'ko', headings: ['경력', '학력', '기술'] },
+      { name: 'ja', headings: ['職務経歴', '学歴', 'スキル'] },
+      { name: 'zh', headings: ['工作经历', '教育背景', '技能'] },
+    ];
+    for (const { name, headings } of locales) {
+      const inner = [
+        normalP('Jane Smith'),
+        normalP('jane@example.com'),
+        normalP(headings[0]),
+        normalP(`Staff Engineer, Acme. ${ATS_PADDING}`),
+        normalP(headings[1]),
+        normalP('B.S. Computer Science, 2018.'),
+        normalP(headings[2]),
+        normalP('Python, Kubernetes, Docker'),
+      ].join('');
+      const file = writePartsDocx(dir, `unstyled-${name}.docx`, [{ name: 'word/document.xml', data: wmlDoc(inner) }]);
+      const json = auditAtsFromPath(file);
+      assert.equal(missingSectionIssue(json), false, `${name}: ${JSON.stringify(json.issues)}`);
+      assert.equal(isPass(json, DEFAULT_MIN_SCORE), true, `${name} score=${json.score} ${JSON.stringify(json.issues)}`);
     }
   });
 });
@@ -563,5 +666,101 @@ test('CLI reports Corrupt .docx on stderr for unreadable Word files, even with -
       assert.match(proc.stderr, /Corrupt \.docx/);
       assert.equal(proc.stdout.trim(), '');
     }
+  });
+});
+
+test('a vanished body email does not earn the contact points', () => {
+  withDir((dir) => {
+    const inner = [
+      normalP('Jane Smith'),
+      `<w:p><w:pPr><w:pStyle w:val="Normal"/></w:pPr><w:r><w:rPr><w:vanish/></w:rPr><w:t>jane@example.com</w:t></w:r></w:p>`,
+      normalP('Work Experience'),
+      normalP(`Staff Engineer, Acme. ${ATS_PADDING}`),
+      normalP('Education'),
+      normalP('B.S. Computer Science, 2018.'),
+      normalP('Skills'),
+      normalP('Python, Kubernetes, Docker'),
+    ].join('');
+    const file = writePartsDocx(dir, 'v-email-vanish.docx', [{ name: 'word/document.xml', data: wmlDoc(inner) }]);
+    const parts = extractDocxParts(readFileSync(file));
+    assert.equal(parts.body.includes('jane@example.com'), true);
+    assert.equal(parts.bodyVisible.includes('jane@example.com'), false);
+    const json = auditAtsFromPath(file);
+    assert.equal(isPass(json, DEFAULT_MIN_SCORE), false);
+    assert.ok(json.issues.some((i) => i.severity === 'critical' && /hidden in the document body/i.test(i.message)));
+    assert.equal(json.issues.some((i) => /header\/footer/i.test(i.message)), false);
+  });
+});
+
+test('footer tables, footer logos, and white header names are not scored against the body', () => {
+  withDir((dir) => {
+    const inner = [
+      normalP('Jane Smith'),
+      normalP('jane@example.com'),
+      normalP('Work Experience'),
+      normalP(`Staff Engineer, Acme. ${ATS_PADDING}`),
+      normalP('Education'),
+      normalP('B.S. Computer Science, 2018.'),
+      normalP('Skills'),
+      normalP('Python, Kubernetes, Docker'),
+    ].join('');
+    const header = `<?xml version="1.0" encoding="UTF-8"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:rPr><w:color w:val="FFFFFF"/></w:rPr><w:t>JANE SMITH</w:t></w:r></w:p></w:hdr>`;
+    const footer = `<?xml version="1.0" encoding="UTF-8"?><w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:tbl><w:tr><w:tc><w:p><w:r><w:t>page</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:p><w:r><w:drawing></w:drawing></w:r></w:p></w:ftr>`;
+    const file = writePartsDocx(dir, 'v-header-footer-chrome.docx', [
+      { name: 'word/document.xml', data: wmlDoc(inner) },
+      { name: 'word/header1.xml', data: header },
+      { name: 'word/footer1.xml', data: footer },
+    ]);
+    const parts = extractDocxParts(readFileSync(file));
+    assert.equal(parts.tables, 0);
+    assert.equal(parts.images, 0);
+    assert.equal(parts.hiddenSignals.length, 0);
+    const json = auditAtsFromPath(file);
+    assert.equal(isPass(json, DEFAULT_MIN_SCORE), true, JSON.stringify(json.issues));
+    assert.equal(json.issues.some((i) => /<w:tbl>|Word table/i.test(i.message)), false);
+    assert.equal(json.issues.some((i) => /drawing\/pict/i.test(i.message)), false);
+    assert.equal(json.issues.some((i) => /hidden text/i.test(i.message)), false);
+  });
+});
+
+test('webHidden, near-white, themeColor, highlight, and styles.xml hidden runs are flagged', () => {
+  withDir((dir) => {
+    const styles = `<?xml version="1.0" encoding="UTF-8"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="character" w:styleId="HiddenRun"><w:rPr><w:vanish/><w:webHidden/></w:rPr></w:style></w:styles>`;
+    const inner = [
+      normalP('Jane Smith'),
+      normalP('jane@example.com'),
+      normalP('Work Experience'),
+      normalP(`Staff Engineer, Acme. ${ATS_PADDING}`),
+      normalP('Education'),
+      normalP('B.S. Computer Science, 2018.'),
+      normalP('Skills'),
+      normalP('Python, Kubernetes, Docker'),
+      `<w:p><w:r><w:rPr><w:webHidden/></w:rPr><w:t>zzqwebhidden</w:t></w:r></w:p>`,
+      `<w:p><w:r><w:rPr><w:color w:val="F8F8F8"/></w:rPr><w:t>zzqnearwhite</w:t></w:r></w:p>`,
+      `<w:p><w:r><w:rPr><w:color w:themeColor="background1"/></w:rPr><w:t>zzqtheme</w:t></w:r></w:p>`,
+      `<w:p><w:r><w:rPr><w:highlight w:val="white"/></w:rPr><w:t>zzqhighlight</w:t></w:r></w:p>`,
+      `<w:p><w:r><w:rPr><w:rStyle w:val="HiddenRun"/></w:rPr><w:t>zzqstylerust</w:t></w:r></w:p>`,
+    ].join('');
+    const file = writePartsDocx(dir, 'v-hidden-extra.docx', [
+      { name: 'word/document.xml', data: wmlDoc(inner) },
+      { name: 'word/styles.xml', data: styles },
+    ]);
+    const buf = readFileSync(file);
+    assert.match(extractDocxText(buf), /zzqstylerust/);
+    const parts = extractDocxParts(buf);
+    assert.equal(parts.bodyVisible.includes('zzqwebhidden'), false);
+    assert.equal(parts.bodyVisible.includes('zzqnearwhite'), false);
+    assert.equal(parts.bodyVisible.includes('zzqtheme'), false);
+    assert.equal(parts.bodyVisible.includes('zzqhighlight'), false);
+    assert.equal(parts.bodyVisible.includes('zzqstylerust'), false);
+    assert.ok(parts.hiddenSignals.includes('w:webHidden'));
+    assert.ok(parts.hiddenSignals.includes('near-white text'));
+    assert.ok(parts.hiddenSignals.includes('themeColor'));
+    assert.ok(parts.hiddenSignals.includes('white highlight'));
+    assert.ok(parts.hiddenSignals.includes('w:vanish'));
+    const json = auditAtsFromPath(file);
+    assert.ok(json.issues.some((i) => /hidden text/i.test(i.message)));
+    const covered = parseJson(runCli(file, ['--json', '--keywords', 'zzqwebhidden,zzqstylerust']));
+    assert.equal(covered.keywordCoverage.found, 0);
   });
 });
