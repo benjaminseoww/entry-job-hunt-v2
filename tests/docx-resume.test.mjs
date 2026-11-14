@@ -594,7 +594,7 @@ test('real cv.md renders and verifies', { skip: !existsSync(join(ROOT, 'cv.md'))
 });
 
 function run(args) {
-  return spawnSync(process.execPath, [join(ROOT, 'generate-docx.mjs'), ...args], { encoding: 'utf8' });
+  return spawnSync(process.execPath, [join(ROOT, 'generate-docx.mjs'), ...args, '--skip-fact-check'], { encoding: 'utf8' });
 }
 
 test('cli: writes a verified .docx and reports it', () => {
@@ -686,7 +686,7 @@ test('B2: a read-only existing good.docx survives a failed write', (t) => {
     chmodSync(output, 0o444);
     chmodSync(dir, 0o555);
     try {
-      const result = generateDocx({ input, output });
+      const result = generateDocx({ input, output, skipFactCheck: true });
       if (result.ok) {
         t.skip('directory mode does not block writes on this platform');
         return;
@@ -709,7 +709,7 @@ test('cli: a planted temp-looking file is left alone', () => {
     writeFileSync(input, MD);
     const planted = join(dir, `.cv.docx.${process.pid}.tmp`);
     writeFileSync(planted, 'PLANTED');
-    const result = generateDocx({ input, output });
+    const result = generateDocx({ input, output, skipFactCheck: true });
     assert.equal(result.ok, true, result.error);
     assert.equal(readFileSync(planted, 'utf8'), 'PLANTED');
   });
@@ -726,7 +726,7 @@ test('cli: overwriting keeps the existing file mode', (t) => {
       t.skip(`file mode is not honoured (got ${before.toString(8)})`);
       return;
     }
-    const result = generateDocx({ input, output });
+    const result = generateDocx({ input, output, skipFactCheck: true });
     assert.equal(result.ok, true, result.error);
     assert.equal(statSync(output).mode & 0o777, 0o600);
   });
@@ -835,7 +835,7 @@ test('cli: CAREER_OPS_ROOT allows the data root', () => {
     const dataRoot = mkdtempOutsideAllowed('career-ops-docx-data-');
     try {
       const allowed = join(dataRoot, 'cv.docx');
-      const viaRoot = spawnSync(process.execPath, [join(ROOT, 'generate-docx.mjs'), input, allowed], {
+      const viaRoot = spawnSync(process.execPath, [join(ROOT, 'generate-docx.mjs'), input, allowed, '--skip-fact-check'], {
         encoding: 'utf8',
         env: { ...process.env, CAREER_OPS_ROOT: dataRoot },
       });
@@ -861,7 +861,7 @@ test('page length: wrapping bullets warn above one page', () => {
     const input = join(dir, 'ok.md');
     const output = join(dir, 'cv.docx');
     writeFileSync(input, md);
-    const result = generateDocx({ input, output });
+    const result = generateDocx({ input, output, skipFactCheck: true });
     assert.equal(result.ok, true, result.error);
     assert.match(result.warning, /longer than one page/);
     assert.equal(existsSync(output), true);
@@ -919,7 +919,7 @@ test('cli: mixed-case output roots are allowed on darwin/win32', (t) => {
     const input = join(dir, 'ok.md');
     const output = join(dir, 'cv.docx');
     writeFileSync(input, MD);
-    const r = spawnSync(process.execPath, [join(mixedRoot, 'generate-docx.mjs'), input, output], { encoding: 'utf8' });
+    const r = spawnSync(process.execPath, [join(mixedRoot, 'generate-docx.mjs'), input, output, '--skip-fact-check'], { encoding: 'utf8' });
     assert.equal(r.status, 0, r.stderr);
     assert.equal(existsSync(output), true);
   } finally {
@@ -958,7 +958,7 @@ test('cli: a different-case sibling of the data root is refused', (t) => {
     const input = join(parent, 'ok.md');
     writeFileSync(input, MD);
     const output = join(lower, 'escape.docx');
-    const r = spawnSync(process.execPath, [join(ROOT, 'generate-docx.mjs'), input, output], {
+    const r = spawnSync(process.execPath, [join(ROOT, 'generate-docx.mjs'), input, output, '--skip-fact-check'], {
       encoding: 'utf8',
       env: { ...process.env, CAREER_OPS_ROOT: upper },
     });

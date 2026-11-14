@@ -251,6 +251,10 @@ function coverSandbox() {
     copyFileSync(join(ROOT, f), join(dir, f));
   }
   copyFileSync(join(ROOT, 'lib', 'is-main-module.mjs'), join(dir, 'lib', 'is-main-module.mjs'));
+  // verify-cv-facts.mjs reads .docx through these; cover letters never pass a
+  // Word file, but the import is static so the sandbox must still load them.
+  copyFileSync(join(ROOT, 'lib', 'docx-text.mjs'), join(dir, 'lib', 'docx-text.mjs'));
+  copyFileSync(join(ROOT, 'lib', 'docx-zip.mjs'), join(dir, 'lib', 'docx-zip.mjs'));
   copyFileSync(join(ROOT, 'lib', 'yaml-document.mjs'), join(dir, 'lib', 'yaml-document.mjs'));
   // cv-templates.mjs decodes HTML entities when it reads a template's meta
   // block, so the sandbox needs this too. Without it the copied script dies at

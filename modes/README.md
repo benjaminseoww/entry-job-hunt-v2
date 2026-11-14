@@ -28,6 +28,7 @@ table in `AGENTS.md` (mirrored in `CLAUDE.md`).
 | `latex.md` | `latex` | LaTeX/Overleaf CV export |
 | `latex-tex.md` | `latex-tex` | Tailor your own hand-maintained `.tex` CV in place (opt-in) |
 | `text.md` | `text` | Tailored markdown CV (no PDF) |
+| `docx.md` | `docx` | Tailored Word (.docx) CV from markdown |
 | `cover.md` | `cover` | Cover letter generator |
 | `email.md` | `email` | Application email drafts (draft-only) |
 | `contacto.md` | `contacto` | LinkedIn outreach messages |
