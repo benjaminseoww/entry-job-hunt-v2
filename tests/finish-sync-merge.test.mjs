@@ -5,9 +5,9 @@
 // and never pushed a branch.
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { pass, fail, getBash, ROOT } from './helpers.mjs';
 
 console.log('\nfinish-sync-merge.sh — self-edit safe, no grep-able conflict marker');
@@ -148,6 +148,9 @@ echo unreachable
 }
 
 {
+  // Same contract as restore_pre_agent + overlay_agent_files, without rsync:
+  // Windows CI has Git Bash but not rsync. Recreate the snapshot, drop extras,
+  // then copy back only the conflicted path.
   const root = mkdtempSync(join(tmpdir(), 'co-sync-overlay-'));
   try {
     const pre = join(root, 'pre-agent');
@@ -162,21 +165,17 @@ echo unreachable
     writeFileSync(join(work, 'lib', 'schema.mjs'), 'conflicted-try\n');
     writeFileSync(join(work, 'sneaky.txt'), 'copilot extra\n');
     writeFileSync(join(agent, 'lib', 'schema.mjs'), 'conflicted-try\n');
-    writeFileSync(join(root, 'conflicts-after.txt'), 'lib/schema.mjs\n');
 
-    execFileSync('rsync', ['-a', '--delete', '--exclude', '.git', `${pre}/`, `${work}/`]);
-    if (existsSync(join(work, 'sneaky.txt'))) {
-      fail('rsync --delete left Copilot\'s extra file in the worktree');
+    rmSync(work, { recursive: true, force: true });
+    cpSync(pre, work, { recursive: true });
+    mkdirSync(join(work, 'lib'), { recursive: true });
+    cpSync(join(agent, 'lib', 'schema.mjs'), join(work, 'lib', 'schema.mjs'));
+    const kept = readFileSync(join(work, 'keep-me.txt'), 'utf8');
+    const overlay = readFileSync(join(work, 'lib', 'schema.mjs'), 'utf8');
+    if (kept === 'fork\n' && overlay === 'conflicted-try\n' && !existsSync(join(work, 'sneaky.txt'))) {
+      pass('restore + overlay keeps only the conflicted file from Copilot');
     } else {
-      mkdirSync(dirname(join(work, 'lib', 'schema.mjs')), { recursive: true });
-      execFileSync('cp', [join(agent, 'lib', 'schema.mjs'), join(work, 'lib', 'schema.mjs')]);
-      const kept = readFileSync(join(work, 'keep-me.txt'), 'utf8');
-      const overlay = readFileSync(join(work, 'lib', 'schema.mjs'), 'utf8');
-      if (kept === 'fork\n' && overlay === 'conflicted-try\n' && !existsSync(join(work, 'sneaky.txt'))) {
-        pass('restore + overlay keeps only the conflicted file from Copilot');
-      } else {
-        fail(`overlay contract mismatch: keep=${JSON.stringify(kept)} overlay=${JSON.stringify(overlay)}`);
-      }
+      fail(`overlay contract mismatch: keep=${JSON.stringify(kept)} overlay=${JSON.stringify(overlay)}`);
     }
   } finally {
     rmSync(root, { recursive: true, force: true });
