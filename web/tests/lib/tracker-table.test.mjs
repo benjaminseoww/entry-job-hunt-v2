@@ -115,6 +115,16 @@ test('reads a URL column and returns the href from a markdown link cell', () => 
   assert.deepEqual(rows.map((row) => row.url), [href, href, '—', workday]);
 });
 
+test('| Word | header maps onto the pdf field', () => {
+  const md = `| # | Date | Company | Role | Score | Status | Word | Report | Notes |
+|---|---|---|---|---|---|---|---|---|
+| 41 | 2026-01-02 | Acme | Engineer | 4.2/5 | Applied | ✅ | [41](reports/041.md) | keep |`;
+  const [row] = parseApplications(md, root);
+  assert.equal(row.pdf, '✅');
+  assert.equal(row.status, 'Applied');
+  assert.equal(row.notes, 'keep');
+});
+
 test('reads a header-mapped tracker narrower than the legacy eight columns', () => {
   // No PDF or Report column. parseTrackerRow reads this row; the web reader
   // used to drop it before the header map was consulted.

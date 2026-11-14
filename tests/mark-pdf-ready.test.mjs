@@ -11,9 +11,10 @@
 // exit the process itself; only pass()/fail() from ./helpers.mjs.
 import { pass, fail, NODE, ROOT, directoryDenyBinds } from './helpers.mjs';
 import { join } from 'path';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, chmodSync } from 'fs';
 import { tmpdir } from 'os';
+import { resolveColumns } from '../tracker-parse.mjs';
 
 console.log('\nmark-pdf-ready.mjs — PDF column write path');
 
@@ -40,14 +41,10 @@ function runMarkPdfReady(args, sandbox, extraEnv = {}) {
     CAREER_OPS_TRACKER_LOCK: sandbox.lock,
     ...extraEnv,
   };
-  try {
-    const stdout = execFileSync(NODE, [join(ROOT, 'mark-pdf-ready.mjs'), ...args], {
-      cwd: ROOT, env, encoding: 'utf-8', timeout: 30000, stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return { code: 0, stdout, stderr: '' };
-  } catch (e) {
-    return { code: e.status ?? 1, stdout: e.stdout || '', stderr: e.stderr || '' };
-  }
+  const result = spawnSync(NODE, [join(ROOT, 'mark-pdf-ready.mjs'), ...args], {
+    cwd: ROOT, env, encoding: 'utf-8', timeout: 30000,
+  });
+  return { code: result.status ?? 1, stdout: result.stdout || '', stderr: result.stderr || '' };
 }
 
 const TRACKER_9 = `# Applications Tracker
@@ -344,6 +341,94 @@ const TRACKER_DUP_REPORT = `# Applications Tracker
       pass('no-pdf-column: exit 1 when the tracker has no PDF column');
     } else {
       fail(`no-pdf-column: code=${r.code} json=${JSON.stringify(parsed)}\n${r.stdout}${r.stderr}`);
+    }
+  } finally {
+    rmSync(sb.dir, { recursive: true, force: true });
+  }
+}
+
+// ── 11b. Tracker with a Word column alias -> colmap.pdf is set, --dry-run succeeds ──
+{
+  // Given a header that names the CV column Word instead of PDF. Before the
+  // word→pdf alias this was a live bug: resolveColumns left colmap.pdf unset
+  // and mark-pdf-ready exited 1 with no-pdf-column.
+  const WORD_COLUMN = `# Applications Tracker
+
+| # | Date | Company | Role | Score | Status | Word | Report | Notes |
+|---|------|---------|------|-------|--------|------|--------|-------|
+| 1 | 2026-06-01 | Acme | Backend Engineer | 4.2/5 | Evaluated | ❌ | [1](../reports/001-acme-2026-06-01.md) | — |
+`;
+  const WANT_LINE = '| 1 | 2026-06-01 | Acme | Backend Engineer | 4.2/5 | Evaluated | ✅ | [1](../reports/001-acme-2026-06-01.md) | — |';
+  const sb = makeSandbox(WORD_COLUMN);
+  try {
+    const colmap = resolveColumns(WORD_COLUMN.split('\n'));
+    if (colmap.pdf === 7) {
+      pass('word-alias: resolveColumns maps | Word | onto colmap.pdf at index 7');
+    } else {
+      fail(`word-alias resolveColumns: colmap.pdf=${colmap.pdf} (want 7) (${JSON.stringify(colmap)})`);
+    }
+
+    const dry = runMarkPdfReady(['1', '--dry-run', '--json'], sb);
+    let dryParsed = null;
+    try { dryParsed = JSON.parse(dry.stdout); } catch { /* asserted below */ }
+
+    if (dry.code === 0 && dryParsed?.dryRun === true && dryParsed?.changed === true && readTracker(sb) === WORD_COLUMN) {
+      pass('word-alias: --dry-run succeeds on a | Word | tracker');
+    } else {
+      fail(`word-alias dry-run: code=${dry.code} json=${JSON.stringify(dryParsed)}\n${dry.stdout}${dry.stderr}`);
+    }
+
+    const r = runMarkPdfReady(['1'], sb);
+    const after = readTracker(sb);
+    const afterLines = after.split('\n');
+    const beforeLines = WORD_COLUMN.split('\n');
+    const onlyCellChanged = afterLines.length === beforeLines.length
+      && afterLines.every((line, i) => (i === 4 ? line === WANT_LINE : line === beforeLines[i]));
+    if (r.code === 0 && afterLines[4] === WANT_LINE && onlyCellChanged) {
+      pass('word-alias: write flips only the Word cell, every other byte unchanged');
+    } else {
+      fail(`word-alias write: code=${r.code} line=${JSON.stringify(afterLines[4])}\n${r.stdout}${r.stderr}\n${after}`);
+    }
+  } finally {
+    rmSync(sb.dir, { recursive: true, force: true });
+  }
+}
+
+// ── 11c. A [Word](…) link cell is left byte-identical ──
+{
+  // Given a Word-header tracker whose CV cell is a file link, plus a live
+  // index row. Flipping the cell to ✅ would drop the path docx-backfill needs.
+  const WORD_LINK = `# Applications Tracker
+
+| # | Date | Company | Role | Score | Status | Word | Report | Notes |
+|---|------|---------|------|-------|--------|------|--------|-------|
+| 1 | 2026-06-01 | Acme | Backend Engineer | 4.2/5 | Evaluated | [Word](../output/x.docx) | [1](../reports/001-acme-2026-06-01.md) | — |
+`;
+  const sb = makeSandbox(WORD_LINK);
+  try {
+    const output = join(sb.dir, 'output');
+    mkdirSync(output, { recursive: true });
+    writeFileSync(join(output, 'x.docx'), 'PK');
+    writeFileSync(join(sb.dir, 'pdf-index.tsv'), [
+      '# report\tpdf\thtml\tformat\tdate\tkind',
+      '1\toutput/x.docx\toutput/x.md\tletter\t2026-06-01\tcv',
+      '',
+    ].join('\n'));
+    const r = runMarkPdfReady(['1', '--json'], sb);
+    let parsed = null;
+    try { parsed = JSON.parse(r.stdout); } catch { /* asserted below */ }
+    const jsonOk = r.code === 0 && parsed?.changed === false
+      && parsed?.skipped === 'non-placeholder-cell'
+      && parsed?.cell === '[Word](../output/x.docx)'
+      && readTracker(sb) === WORD_LINK
+      && /left as is \(run docx-backfill\)/.test(r.stderr);
+    const plain = runMarkPdfReady(['1'], sb);
+    const plainOk = plain.code === 0 && readTracker(sb) === WORD_LINK
+      && /left PDF\/Word cell as is/.test(plain.stdout);
+    if (jsonOk && plainOk) {
+      pass('word-link: mark-pdf-ready leaves a [Word](…) cell byte-identical');
+    } else {
+      fail(`word-link: code=${r.code} json=${JSON.stringify(parsed)} unchanged=${readTracker(sb) === WORD_LINK}\njson stdout=${r.stdout}${r.stderr}\nplain stdout=${plain.stdout}${plain.stderr}`);
     }
   } finally {
     rmSync(sb.dir, { recursive: true, force: true });

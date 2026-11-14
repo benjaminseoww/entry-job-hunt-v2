@@ -31,7 +31,7 @@ import { normalizeReportLink as normalizeLink } from './tracker-links.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import { roleFuzzyMatch } from './role-matcher.mjs';
 import { parsePdfIndex, livePdfIndex, normNum } from './find.mjs';
-import { LEGACY_COLMAP, TSV_REQUIRED_FIELDS, detectColumns, isHeaderRow, resolveScoreStatus, looksLikeTsvHeaderRow, resolveTsvColumns, looksLikeScoreCell, parseScore, normalizeVia, normalizeTextKey, SEPARATOR_ROW_RE, extractReqNumber, extractCellUrl, parseMarkdownLinks, firstLinkTarget, unwrapReportUrlToken } from './tracker-parse.mjs';
+import { LEGACY_COLMAP, TSV_REQUIRED_FIELDS, detectColumns, isHeaderRow, resolveScoreStatus, looksLikeTsvHeaderRow, resolveTsvColumns, looksLikeScoreCell, parseScore, normalizeVia, normalizeTextKey, SEPARATOR_ROW_RE, extractReqNumber, extractCellUrl, parseMarkdownLinks, firstLinkTarget, unwrapReportUrlToken, isPlaceholderPdfCell, isReadyPdfCell, pdfCellLeftAsIsWarning } from './tracker-parse.mjs';
 // The ATS vendor table shared with analyze-patterns.mjs and the scanners, so
 // the URL cell's label and the per-vendor analysis name a board identically.
 import { atsVendorOf } from './ats-vendor.mjs';
@@ -2147,9 +2147,16 @@ export async function mergeTracker(options = {}) {
         // absent stays unchanged.
         const reportChanged = String(reportNum ?? '') !== String(oldReportNum ?? '');
         if (reportChanged) await rekeyLivePdf(pdfIndex, oldReportNum, reportNum);
-        const pdf = reportNum && pdfIndex.has(String(reportNum))
-          ? '✅'
-          : (reportChanged ? '❌' : duplicate.pdf);
+        // A [Word](…) / [docx](…) link (or any other non-placeholder, non-✅
+        // cell) is provenance for docx-backfill. Do not replace it with ❌
+        // just because the linked report number changed.
+        const keepCell = !isReadyPdfCell(duplicate.pdf) && !isPlaceholderPdfCell(duplicate.pdf);
+        if (keepCell) console.warn(pdfCellLeftAsIsWarning(duplicate.num, duplicate.pdf));
+        const pdf = keepCell
+          ? duplicate.pdf
+          : (reportNum && pdfIndex.has(String(reportNum))
+            ? '✅'
+            : (reportChanged ? '❌' : duplicate.pdf));
         const updatedLine = buildRow({
           num: duplicate.num, date: addition.date,
           // A corporate-form match (#3665) pairs the row with a VARIANT spelling of
