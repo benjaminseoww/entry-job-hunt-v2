@@ -111,6 +111,22 @@ test('--report writes a Word CV row; a re-run supersedes it; a cover row survive
   });
 });
 
+test('--companion records the given .md in the html column, not the input', () => {
+  withWorkspace(({ root, env }) => {
+    const input = join(root, 'output', 'scratch.md');
+    const companion = join(root, 'output', 'final.md');
+    const output = join(root, 'output', 'cv.docx');
+    writeFileSync(input, MD);
+    const r = run(root, env, [input, output, '--report=7', `--companion=${companion}`, '--json']);
+    assert.equal(r.status, 0, r.stderr);
+    const json = JSON.parse(r.stdout);
+    assert.equal(json.index.ok, true);
+    const tsv = readFileSync(join(root, 'data', 'pdf-index.tsv'), 'utf8');
+    assert.match(tsv, /\toutput\/cv\.docx\toutput\/final\.md\tletter\t/);
+    assert.equal(tsv.includes('scratch.md'), false);
+  });
+});
+
 test('--report still prints JSON when the index write fails', () => {
   withWorkspace(({ root, env }) => {
     const input = join(root, 'output', 'cv.md');

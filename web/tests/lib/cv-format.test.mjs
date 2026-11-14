@@ -5,6 +5,7 @@ import {
   isCvOutputFilename,
   cvFormatLabel,
   tailoredCvAttachCopy,
+  isWordCvView,
 } from "../../src/lib/cv-format.mjs";
 import { readReport } from "../../src/lib/report-header.mjs";
 import { SAVE_ERRORS, studioErrorMessage, WORD_CV_SAVE_ERROR } from "../../src/lib/studio-errors.mjs";
@@ -52,6 +53,30 @@ test("Garamond preview is labelled Preview of the Word file", () => {
   assert.match(html, /Garamond/);
   assert.match(html, /Jane Doe/);
   assert.match(mdToGaramondHtml("# Jane Doe"), /<h1>Jane Doe<\/h1>/);
+});
+
+test("Garamond preview escapes XSS and keeps query-string ampersands", () => {
+  const html = mdToGaramondHtml([
+    "[amp](https://e.com/?a=1&b=2)",
+    "<script>alert(1)</script>",
+    '<img onerror="alert(1)">',
+    "[js](javascript:alert(1))",
+    '[break](https://e.com/"onmouseover="alert)',
+  ].join("\n\n"));
+  assert.match(html, /href="https:\/\/e\.com\/\?a=1&amp;b=2"/);
+  assert.equal(html.includes("&amp;amp;"), false);
+  assert.equal(html.includes("<script>"), false);
+  assert.match(html, /&lt;script&gt;/);
+  assert.equal(html.includes("<img onerror"), false);
+  assert.equal(html.includes('href="javascript:'), false);
+  assert.match(html, /href="https:\/\/e\.com\/&quot;onmouseover=&quot;alert"/);
+});
+
+test("isWordCvView: server prop or the just-finished docx job", () => {
+  assert.equal(isWordCvView(true, undefined), true);
+  assert.equal(isWordCvView(false, "docx"), true);
+  assert.equal(isWordCvView(false, "pdf"), false);
+  assert.equal(isWordCvView(false, undefined), false);
 });
 
 test("readCvOutputFormat: docx only when the profile says so", () => {

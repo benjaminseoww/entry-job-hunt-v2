@@ -6,6 +6,7 @@ import { FileDown, Loader2, FileText, RotateCcw, SlidersHorizontal, TriangleAler
 import { useJobs } from "@/components/jobs/job-store";
 import { CostBadge } from "@/components/cost/cost-badge";
 import { pdfButtonState, type PdfFailure } from "@/lib/pdf-button-state.mjs";
+import { isWordCvView } from "@/lib/cv-format.mjs";
 
 // Fires the real career-ops `pdf` mode (worker kind "pdf") to generate an
 // ATS-optimized CV tailored to THIS offer → output/cv-… + marks the tracker.
@@ -38,7 +39,8 @@ export function GeneratePdfButton({
       input: n,
       page: `/pipeline/${n}`,
     });
-  const viewHref = cvIsWord
+  const wordView = isWordCvView(cvIsWord, job?.kind);
+  const viewHref = wordView
     ? `/api/cv-preview?n=${encodeURIComponent(n)}&company=${encodeURIComponent(company)}`
     : `/api/cv-pdf?n=${encodeURIComponent(n)}&company=${encodeURIComponent(company)}`;
 
@@ -62,12 +64,14 @@ export function GeneratePdfButton({
         >
           <FileText className="size-3.5" /> View tailored CV
         </a>
-        <Link
-          href={`/pipeline/${encodeURIComponent(n)}/cv-studio`}
-          className="inline-flex items-center justify-center gap-1.5 rounded-full border border-brand/40 bg-brand-soft px-3 py-1 text-xs font-medium text-brand transition-colors hover:bg-brand-soft/70 max-sm:min-h-[44px]"
-        >
-          <SlidersHorizontal className="size-3.5" /> Review and customize
-        </Link>
+        {!wordView && (
+          <Link
+            href={`/pipeline/${encodeURIComponent(n)}/cv-studio`}
+            className="inline-flex items-center justify-center gap-1.5 rounded-full border border-brand/40 bg-brand-soft px-3 py-1 text-xs font-medium text-brand transition-colors hover:bg-brand-soft/70 max-sm:min-h-[44px]"
+          >
+            <SlidersHorizontal className="size-3.5" /> Review and customize
+          </Link>
+        )}
         <button
           onClick={generate}
           title="Regenerate the tailored CV"

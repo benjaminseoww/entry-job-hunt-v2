@@ -12,8 +12,10 @@ function esc(text) {
 
 function inline(text) {
   let out = esc(text);
+  // `text` is already escaped, so `href` already has `&` → `&amp;`. Escaping
+  // again would turn a query string into `&amp;amp;` and break the link.
   out = out.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, (_, label, href) =>
-    `<a href="${esc(href)}">${label}</a>`);
+    `<a href="${href}">${label}</a>`);
   out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   out = out.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
   return out;

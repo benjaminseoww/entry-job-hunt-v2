@@ -187,10 +187,12 @@ export function ApplyProvider({ children }: { children: React.ReactNode }) {
     nRef.current = opts?.n ?? "";
     setFrom(opts?.from ?? "");
     setCvFormat("PDF");
-    const kindQs = new URLSearchParams();
-    if (opts?.n) kindQs.set("application", opts.n);
-    if (opts?.company) kindQs.set("company", opts.company);
-    if (kindQs.toString()) {
+    const requestCvFormat = (qs: { application?: string; company?: string; title?: string }) => {
+      const kindQs = new URLSearchParams();
+      if (qs.application) kindQs.set("application", qs.application);
+      if (qs.company) kindQs.set("company", qs.company);
+      if (qs.title) kindQs.set("title", qs.title);
+      if (![...kindQs.keys()].length) return;
       void fetch(`/api/cv-kind?${kindQs}`)
         .then((r) => r.json())
         .then((d) => {
@@ -198,7 +200,8 @@ export function ApplyProvider({ children }: { children: React.ReactNode }) {
           if (d?.format === "Word" || d?.format === "PDF") setCvFormat(d.format);
         })
         .catch(() => {});
-    }
+    };
+    requestCvFormat({ application: opts?.n, company: opts?.company });
     pendingPrefill.current = false;
     try {
       const r = await fetch("/api/apply/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: u, cliId: cliId() }) });
@@ -218,6 +221,7 @@ export function ApplyProvider({ children }: { children: React.ReactNode }) {
       }
       sessionId.current = d.id;
       setTitle(d.title);
+      requestCvFormat({ application: opts?.n, company: opts?.company, title: d.title });
       setShots(d.shots ?? []);
       pendingPrefill.current = !!opts?.prefill;
       if (d.needsDrive) {

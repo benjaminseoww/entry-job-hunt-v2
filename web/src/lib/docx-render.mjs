@@ -1,10 +1,13 @@
 /**
  * docx-render.mjs — persist tailored markdown, render Word, mark the tracker.
  *
- * Mirrors pdf-render.mjs: the agent emits <<cv-md>>, the backend writes the
- * .md, generate-docx.mjs renders it, mark-pdf-ready.mjs flips the tracker
- * cell. No agent writes. Word is US Letter only.
+ * Mirrors pdf-render.mjs: the agent emits <<cv-md>>, the backend writes a
+ * per-run scratch .md, generate-docx.mjs renders it, and only after exit 0
+ * is the scratch promoted to output/ with temp+rename. A blocked fact gate
+ * therefore never leaves unverified claims in the index companion. No agent
+ * writes. Word is US Letter only.
  */
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import * as yaml from "js-yaml";
@@ -17,6 +20,7 @@ import { markTrackerReady } from "./pdf-render.mjs";
  * @property {string} reportNum
  * @property {string} reportFile
  * @property {string} md
+ * @property {string} scratchMd
  * @property {string} finalDocx
  */
 
@@ -51,13 +55,17 @@ export function resolveDocxPaths(input, today, root, findReportFile) {
     }
   }
   const stem = `cv-${candidateSlug}-${reportNum}-${companySlug}-${today}`;
+  const scratchDir = path.join(root, ".career-ops-web", "pdf-tmp");
   fs.mkdirSync(path.join(root, "output"), { recursive: true });
+  fs.mkdirSync(scratchDir, { recursive: true });
+  const runId = randomBytes(8).toString("hex");
   return {
     ok: true,
     paths: {
       reportNum,
       reportFile: path.relative(root, reportFile).split(path.sep).join("/"),
       md: path.join(root, "output", `${stem}.md`),
+      scratchMd: path.join(scratchDir, `cv-web-${reportNum}-${runId}.md`),
       finalDocx: path.join(root, "output", `${stem}.docx`),
     },
   };
@@ -80,31 +88,64 @@ export function docxRunOutcome({ envelope, noOutputMessage, sawError, cleanExit,
 }
 
 /**
- * @param {{docxPaths: {md: string}, markdown: string}} args
+ * Write the tailored markdown to the per-run scratch file, never the final
+ * companion path. A blocked fact gate must not overwrite a verified .md.
+ * @param {{docxPaths: {scratchMd?: string, md: string}, markdown: string}} args
  * @returns {{ok: true} | {ok: false, error: string}}
  */
 export function writeCvMarkdown({ docxPaths, markdown }) {
+  const dest = docxPaths.scratchMd ?? docxPaths.md;
   try {
-    fs.mkdirSync(path.dirname(docxPaths.md), { recursive: true });
-    fs.writeFileSync(docxPaths.md, markdown, "utf8");
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.writeFileSync(dest, markdown, "utf8");
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: `Could not save the tailored CV to ${err.path ?? docxPaths.md}: ${err.message}` };
+    return { ok: false, error: `Could not save the tailored CV to ${err.path ?? dest}: ${err.message}` };
   }
 }
 
 /**
- * @param {{spawnFn: Function, execPath: string, root: string, md: string, finalDocx: string, reportNum: string}} args
+ * Promote the scratch markdown onto the final companion path with temp+rename.
+ * @param {string} scratch
+ * @param {string} dest
+ * @param {string[]} warnings
+ */
+export function promoteScratchMarkdown(scratch, dest, warnings) {
+  const tmp = `${dest}.${randomBytes(6).toString("hex")}.tmp`;
+  try {
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(scratch, tmp);
+    fs.renameSync(tmp, dest);
+  } catch (err) {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* already gone */ }
+    warnings.push(`Word file rendered, but its markdown was not kept: ${err.message}`);
+  }
+}
+
+/**
+ * Always remove this run's scratch file, whether the render succeeded or not.
+ * @param {string | undefined} scratch
+ */
+export function cleanupDocxScratch(scratch) {
+  if (!scratch) return;
+  try {
+    fs.rmSync(scratch, { force: true });
+  } catch (err) {
+    console.error(`docx scratch cleanup: could not remove ${scratch}: ${err.message}`);
+  }
+}
+
+/**
+ * @param {{spawnFn: Function, execPath: string, root: string, md: string, finalDocx: string, reportNum: string, companion?: string}} args
  * @returns {Promise<{ok: boolean, stderr: string}>}
  */
-export function spawnGenerateDocx({ spawnFn, execPath, root, md, finalDocx, reportNum }) {
+export function spawnGenerateDocx({ spawnFn, execPath, root, md, finalDocx, reportNum, companion }) {
   return new Promise((resolve) => {
-    const child = spawnFn(
-      execPath,
-      [path.join(root, "generate-docx.mjs"), md, finalDocx, `--report=${reportNum}`],
-      { cwd: root },
-    );
+    const args = [path.join(root, "generate-docx.mjs"), md, finalDocx, `--report=${reportNum}`];
+    if (companion) args.push(`--companion=${companion}`);
+    const child = spawnFn(execPath, args, { cwd: root });
     let stderr = "";
+    child.stdout?.on?.("data", () => {});
     child.stderr.on("data", (d) => { stderr += d.toString(); });
     child.on("close", (code) => resolve({ ok: code === 0, stderr: stderr.trim() }));
     child.on("error", (e) => resolve({ ok: false, stderr: `Word rendering failed to start: ${e.message}` }));
@@ -112,34 +153,41 @@ export function spawnGenerateDocx({ spawnFn, execPath, root, md, finalDocx, repo
 }
 
 /**
- * @param {{spawnFn: Function, execPath: string, root: string, docxPaths: {md: string, finalDocx: string}, reportNum: string}} args
+ * @param {{spawnFn: Function, execPath: string, root: string, docxPaths: {md: string, scratchMd?: string, finalDocx: string}, reportNum: string}} args
  * @returns {Promise<{kind: "render-failed", error: string} | {kind: "rendered", warnings: string[]}>}
  */
 export async function renderAndMarkDocx({ spawnFn, execPath, root, docxPaths, reportNum }) {
   const warnings = [];
-  const render = await spawnGenerateDocx({
-    spawnFn,
-    execPath,
-    root,
-    md: docxPaths.md,
-    finalDocx: docxPaths.finalDocx,
-    reportNum,
-  });
-  if (!render.ok) {
-    return { kind: "render-failed", error: render.stderr || "Word rendering failed." };
+  const scratch = docxPaths.scratchMd;
+  try {
+    const render = await spawnGenerateDocx({
+      spawnFn,
+      execPath,
+      root,
+      md: scratch ?? docxPaths.md,
+      finalDocx: docxPaths.finalDocx,
+      reportNum,
+      companion: docxPaths.md,
+    });
+    if (!render.ok) {
+      return { kind: "render-failed", error: render.stderr || "Word rendering failed." };
+    }
+    if (scratch) promoteScratchMarkdown(scratch, docxPaths.md, warnings);
+    for (const line of render.stderr.split("\n")) {
+      const text = line.trim();
+      if (text) warnings.push(text);
+    }
+    const mark = await markTrackerReady({ spawnFn, execPath, root, reportNum });
+    if (!mark.ok) {
+      console.error(`mark-pdf-ready.mjs failed for report #${reportNum}: ${mark.data?.error ?? mark.stderr}`);
+      warnings.push(
+        mark.data?.error
+          ? `Word file rendered, but the tracker wasn't updated: ${mark.data.error}`
+          : `Word file rendered, but the tracker's CV column wasn't updated automatically — run \`node mark-pdf-ready.mjs ${reportNum}\` manually.`,
+      );
+    }
+    return { kind: "rendered", warnings };
+  } finally {
+    cleanupDocxScratch(scratch);
   }
-  for (const line of render.stderr.split("\n")) {
-    const text = line.trim();
-    if (text) warnings.push(text);
-  }
-  const mark = await markTrackerReady({ spawnFn, execPath, root, reportNum });
-  if (!mark.ok) {
-    console.error(`mark-pdf-ready.mjs failed for report #${reportNum}: ${mark.data?.error ?? mark.stderr}`);
-    warnings.push(
-      mark.data?.error
-        ? `Word file rendered, but the tracker wasn't updated: ${mark.data.error}`
-        : `Word file rendered, but the tracker's CV column wasn't updated automatically — run \`node mark-pdf-ready.mjs ${reportNum}\` manually.`,
-    );
-  }
-  return { kind: "rendered", warnings };
 }

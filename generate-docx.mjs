@@ -4,7 +4,7 @@
  * generate-docx.mjs — render a tailored resume markdown file as a Word
  * document in the Garamond layout of templates/docx/garamond/.
  *
- *   node generate-docx.mjs <tailored.md> <out.docx> [--template=garamond] [--report=NNN] [--json] [--skip-fact-check]
+ *   node generate-docx.mjs <tailored.md> <out.docx> [--template=garamond] [--report=NNN] [--companion=PATH.md] [--json] [--skip-fact-check]
  *
  * Headings and section order come from the markdown exactly as written; the
  * template supplies only the look (see lib/docx-resume.mjs for the three
@@ -13,9 +13,12 @@
  * Any difference is a failure and the exit code is 1.
  *
  * --report records the .docx in data/pdf-index.tsv after a verified write
- * (pdf = the .docx, html = the input .md, format = letter, kind = cv). Without
- * --report no index row is written. The tracker cell is left to
- * mark-pdf-ready.mjs. US Letter only; there is no --format flag.
+ * (pdf = the .docx, html = the input .md unless --companion is set, format =
+ * letter, kind = cv). --companion names the markdown path the index html
+ * column should keep (the web worker writes a scratch file, then promotes it
+ * to this path after a successful render). Without --report no index row is
+ * written. The tracker cell is left to mark-pdf-ready.mjs. US Letter only;
+ * there is no --format flag.
  *
  * Writes go to a temp file in the real parent directory (random suffix, wx),
  * then renameSync onto the destination basename. rename replaces a symlink
@@ -43,11 +46,11 @@ import { assertFacts } from './verify-cv-facts.mjs';
 import { buildDocx, compareContent, pageLengthWarning } from './lib/docx-resume.mjs';
 
 const PROJECT_ROOT = dirname(fileURLToPath(import.meta.url));
-const KNOWN_FLAGS = ['--template', '--json', '--skip-fact-check', '--help', '-h', '--report'];
-const VALUE_FLAGS = ['--template', '--report'];
+const KNOWN_FLAGS = ['--template', '--json', '--skip-fact-check', '--help', '-h', '--report', '--companion'];
+const VALUE_FLAGS = ['--template', '--report', '--companion'];
 const OUTSIDE_ERROR = 'Refusing to write the .docx outside the project directory, data root, or temp directory';
 const USAGE = `Usage:
-  node generate-docx.mjs <tailored.md> <out.docx> [--template=garamond] [--report=NNN] [--json] [--skip-fact-check]
+  node generate-docx.mjs <tailored.md> <out.docx> [--template=garamond] [--report=NNN] [--companion=PATH.md] [--json] [--skip-fact-check]
 
 Renders a tailored resume markdown file as a Word document. Headings and
 section order are taken from the markdown unchanged; the template supplies the
@@ -57,6 +60,7 @@ the data root has a cv.md; a blocked document is not written.
 
   --template=NAME       template under templates/docx/ (default: garamond)
   --report=NNN          record the .docx in data/pdf-index.tsv for this report
+  --companion=PATH.md   index html column (default: the input .md)
   --json                print the result as JSON
   --skip-fact-check     write without running the fact gate
   --help, -h            show this message`;
@@ -257,6 +261,8 @@ async function main() {
     else if (a === '--template') template = argv[++i];
     else if (a.startsWith('--report=')) continue;
     else if (a === '--report') i += 1;
+    else if (a.startsWith('--companion=')) continue;
+    else if (a === '--companion') i += 1;
     else positional.push(a);
   }
   if (positional.length !== 2) {
@@ -269,6 +275,16 @@ async function main() {
     console.error(`generate-docx: Invalid --report "${reportNum ?? ''}". Use a numeric report number, e.g. --report=42.`);
     process.exitCode = 1;
     return;
+  }
+  let companionPath = resolve(positional[0]);
+  if (hasFlag(argv, '--companion')) {
+    const raw = flagValue(argv, '--companion');
+    if (!raw || String(raw).startsWith('-') || !/\.md$/i.test(raw)) {
+      console.error('generate-docx: --companion must be a .md path, e.g. --companion=output/cv.md.');
+      process.exitCode = 1;
+      return;
+    }
+    companionPath = resolve(raw);
   }
   let result = generateDocx({ input: positional[0], output: positional[1], template, skipFactCheck });
   if (result.factCheck?.verdict === 'skipped') {
@@ -284,7 +300,7 @@ async function main() {
         workspaceRoot: resolveWorkspaceRootFor(root),
         reportNum,
         file: result.output,
-        companion: resolve(positional[0]),
+        companion: companionPath,
         format: 'letter',
         kind: 'cv',
       });

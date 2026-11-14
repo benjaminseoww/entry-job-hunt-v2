@@ -28,3 +28,13 @@ export function cvFormatLabel(pathOrName) {
 export function tailoredCvAttachCopy(pathOrName) {
   return `Your tailored CV (${cvFormatLabel(pathOrName)}) will be attached automatically — you can swap it on the real form.`;
 }
+
+/**
+ * After a first Word run in the same page session, `cvIsWord` is still the
+ * server prop (false) until reload. The just-finished job kind fills that gap.
+ * @param {boolean} cvIsWord
+ * @param {string | undefined} jobKind
+ */
+export function isWordCvView(cvIsWord, jobKind) {
+  return cvIsWord === true || jobKind === "docx";
+}

@@ -1,9 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdtempSync, writeFileSync, mkdirSync, readFileSync, rmSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { spawn } from "node:child_process";
 import {
   docxRunOutcome,
   writeCvMarkdown,
@@ -11,6 +13,13 @@ import {
   renderAndMarkDocx,
   resolveDocxPaths,
 } from "../../src/lib/docx-render.mjs";
+
+const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+const HONEST_CV = readFileSync(join(REPO, "examples", "cv-example.md"), "utf8");
+const INFLATED_CV = HONEST_CV
+  .replaceAll("99.7%", "99.99%")
+  .replaceAll("$2M", "$40M")
+  .replaceAll("3 engineers", "30 engineers");
 
 function fakeChild({ stdout = "", stderr = "", exitCode = 0, spawnError = null } = {}) {
   const child = new EventEmitter();
@@ -65,19 +74,21 @@ test("docxRunOutcome: a missing envelope fails closed", () => {
   assert.match(result.message, /no <<cv-md>> envelope/);
 });
 
-test("writeCvMarkdown: persists the tailored markdown", () => {
+test("writeCvMarkdown: persists the tailored markdown to scratch, not the companion", () => {
   const root = mkdtempSync(join(tmpdir(), "co-docx-write-"));
   try {
     const md = join(root, "output", "cv.md");
-    const written = writeCvMarkdown({ docxPaths: { md }, markdown: "# Jane Doe\n" });
+    const scratchMd = join(root, ".career-ops-web", "pdf-tmp", "cv-web-001-abc.md");
+    const written = writeCvMarkdown({ docxPaths: { md, scratchMd }, markdown: "# Jane Doe\n" });
     assert.equal(written.ok, true);
-    assert.equal(readFileSync(md, "utf8"), "# Jane Doe\n");
+    assert.equal(readFileSync(scratchMd, "utf8"), "# Jane Doe\n");
+    assert.equal(existsSync(md), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("spawnGenerateDocx: invokes generate-docx.mjs with --report", async () => {
+test("spawnGenerateDocx: invokes generate-docx.mjs with --report and --companion", async () => {
   const calls = [];
   const spawnFn = (execPath, args, opts) => {
     calls.push({ execPath, args, opts });
@@ -87,13 +98,19 @@ test("spawnGenerateDocx: invokes generate-docx.mjs with --report", async () => {
     spawnFn,
     execPath: "node",
     root: "/root",
-    md: "/root/output/cv.md",
+    md: "/root/.career-ops-web/pdf-tmp/cv-web-018-run.md",
     finalDocx: "/root/output/cv.docx",
     reportNum: "018",
+    companion: "/root/output/cv.md",
   });
   assert.deepEqual(result, { ok: true, stderr: "" });
   assert.match(calls[0].args[0], /generate-docx\.mjs$/);
-  assert.deepEqual(calls[0].args.slice(1), ["/root/output/cv.md", "/root/output/cv.docx", "--report=018"]);
+  assert.deepEqual(calls[0].args.slice(1), [
+    "/root/.career-ops-web/pdf-tmp/cv-web-018-run.md",
+    "/root/output/cv.docx",
+    "--report=018",
+    "--companion=/root/output/cv.md",
+  ]);
 });
 
 test("renderAndMarkDocx: stub worker writes Word then marks the tracker", async () => {
@@ -103,17 +120,24 @@ test("renderAndMarkDocx: stub worker writes Word then marks the tracker", async 
   });
   const root = mkdtempSync(join(tmpdir(), "co-docx-render-"));
   try {
+    const md = join(root, "output", "cv.md");
+    const scratchMd = join(root, "scratch.md");
+    mkdirSync(join(root, "output"), { recursive: true });
+    writeFileSync(scratchMd, "# promoted\n");
     const result = await renderAndMarkDocx({
       spawnFn,
       execPath: "node",
       root,
-      docxPaths: { md: join(root, "cv.md"), finalDocx: join(root, "cv.docx") },
+      docxPaths: { md, scratchMd, finalDocx: join(root, "output", "cv.docx") },
       reportNum: "018",
     });
     assert.equal(result.kind, "rendered");
+    assert.equal(readFileSync(md, "utf8"), "# promoted\n");
+    assert.equal(existsSync(scratchMd), false);
     assert.equal(calls.length, 2);
     assert.match(calls[0].args[0], /generate-docx\.mjs$/);
-    assert.match(calls[1].args[0], /mark-pdf-ready\.mjs$/);
+    assert.equal(calls[0].args.includes("--companion=" + md), true);
+    assert.match(calls[1].args[0], /mark-pdf-ready.mjs$/);
     assert.equal(calls[1].args[1], "018");
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -125,11 +149,168 @@ test("resolveDocxPaths: names md and docx under output/", () => {
   try {
     mkdirSync(join(root, "reports"), { recursive: true });
     writeFileSync(join(root, "reports", "018-acme-2026-01-10.md"), "# Acme\n");
-    const result = resolveDocxPaths("018", "2026-01-10", root, (n) => join(root, "reports", `018-acme-2026-01-10.md`));
+    const result = resolveDocxPaths("018", "2026-01-10", root, () => join(root, "reports", `018-acme-2026-01-10.md`));
     assert.equal(result.ok, true);
     assert.match(result.paths.md, /output\/cv-candidate-018-acme-2026-01-10\.md$/);
     assert.match(result.paths.finalDocx, /output\/cv-candidate-018-acme-2026-01-10\.docx$/);
+    assert.match(result.paths.scratchMd, /\.career-ops-web\/pdf-tmp\/cv-web-018-[0-9a-f]{16}\.md$/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("renderAndMarkDocx: a failed stub run leaves the companion .md untouched and deletes scratch", async () => {
+  const { spawnFn } = makeRouterSpawn({
+    "generate-docx.mjs": { exitCode: 1, stderr: "Fact check failed" },
+  });
+  const root = mkdtempSync(join(tmpdir(), "co-docx-fail-"));
+  try {
+    const md = join(root, "output", "cv.md");
+    const scratchMd = join(root, ".career-ops-web", "pdf-tmp", "cv-web-018-run.md");
+    mkdirSync(join(root, "output"), { recursive: true });
+    mkdirSync(join(root, ".career-ops-web", "pdf-tmp"), { recursive: true });
+    writeFileSync(md, "# honest\n");
+    writeFileSync(scratchMd, "# inflated\n");
+    const result = await renderAndMarkDocx({
+      spawnFn,
+      execPath: "node",
+      root,
+      docxPaths: { md, scratchMd, finalDocx: join(root, "output", "cv.docx") },
+      reportNum: "018",
+    });
+    assert.equal(result.kind, "render-failed");
+    assert.equal(readFileSync(md, "utf8"), "# honest\n");
+    assert.equal(existsSync(scratchMd), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("renderAndMarkDocx: a failed stub run with no prior .md leaves none in output/", async () => {
+  const { spawnFn } = makeRouterSpawn({
+    "generate-docx.mjs": { exitCode: 1, stderr: "Fact check failed" },
+  });
+  const root = mkdtempSync(join(tmpdir(), "co-docx-orphan-"));
+  try {
+    const md = join(root, "output", "cv.md");
+    const scratchMd = join(root, ".career-ops-web", "pdf-tmp", "cv-web-018-run.md");
+    mkdirSync(join(root, "output"), { recursive: true });
+    mkdirSync(join(root, ".career-ops-web", "pdf-tmp"), { recursive: true });
+    writeFileSync(scratchMd, "# inflated\n");
+    const result = await renderAndMarkDocx({
+      spawnFn,
+      execPath: "node",
+      root,
+      docxPaths: { md, scratchMd, finalDocx: join(root, "output", "cv.docx") },
+      reportNum: "018",
+    });
+    assert.equal(result.kind, "render-failed");
+    assert.equal(existsSync(md), false);
+    assert.deepEqual(readdirSync(join(root, "output")).filter((f) => f.endsWith(".md")), []);
+    assert.equal(existsSync(scratchMd), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+async function withDocxFixture(fn) {
+  const dataRoot = mkdtempSync(join(tmpdir(), "co-docx-e2e-"));
+  const prevProfile = process.env.CAREER_OPS_PROFILE;
+  mkdirSync(join(dataRoot, "data"), { recursive: true });
+  mkdirSync(join(dataRoot, "output"), { recursive: true });
+  mkdirSync(join(dataRoot, "reports"), { recursive: true });
+  mkdirSync(join(dataRoot, "config"), { recursive: true });
+  writeFileSync(join(dataRoot, "cv.md"), HONEST_CV);
+  writeFileSync(join(dataRoot, "config", "profile.yml"), "candidate:\n  full_name: Alex Chen\n");
+  writeFileSync(join(dataRoot, "reports", "001-acme-2026-11-11.md"), "# Acme\n");
+  writeFileSync(
+    join(dataRoot, "data", "applications.md"),
+    `# Applications Tracker
+
+| # | Date | Company | Role | Score | Status | Word | Report | Notes |
+|---|------|---------|------|-------|--------|------|--------|-------|
+| 1 | 2026-11-11 | Acme | Engineer | 4.2/5 | Evaluated | ❌ | [1](../reports/001-acme-2026-11-11.md) | — |
+`,
+  );
+  const env = {
+    ...process.env,
+    CAREER_OPS_ROOT: dataRoot,
+    CAREER_OPS_DATA_DIR: dataRoot,
+  };
+  delete env.CAREER_OPS_TRACKER;
+  delete env.CAREER_OPS_PDF_INDEX;
+  delete env.CAREER_OPS_PROFILE;
+  delete process.env.CAREER_OPS_PROFILE;
+  const spawnFn = (execPath, args, opts) => spawn(execPath, args, { ...opts, env });
+  try {
+    return await fn({ dataRoot, spawnFn });
+  } finally {
+    if (prevProfile !== undefined) process.env.CAREER_OPS_PROFILE = prevProfile;
+    else delete process.env.CAREER_OPS_PROFILE;
+    rmSync(dataRoot, { recursive: true, force: true });
+  }
+}
+
+function outputMarkdown(dataRoot) {
+  return readdirSync(join(dataRoot, "output")).filter((f) => f.endsWith(".md")).sort();
+}
+
+test("renderAndMarkDocx e2e: real generate-docx.mjs, | Word | tracker, B1 blocked runs", { timeout: 60_000 }, async () => {
+  await withDocxFixture(async ({ dataRoot, spawnFn }) => {
+    const resolved = resolveDocxPaths("001", "2026-11-11", dataRoot, () => join(dataRoot, "reports", "001-acme-2026-11-11.md"));
+    assert.equal(resolved.ok, true);
+    const paths = resolved.paths;
+    writeCvMarkdown({ docxPaths: paths, markdown: HONEST_CV });
+
+    const honest = await renderAndMarkDocx({
+      spawnFn,
+      execPath: process.execPath,
+      root: REPO,
+      docxPaths: paths,
+      reportNum: paths.reportNum,
+    });
+    assert.equal(honest.kind, "rendered", JSON.stringify(honest));
+    assert.equal(existsSync(paths.finalDocx), true);
+    assert.equal(readFileSync(paths.md, "utf8"), HONEST_CV);
+    assert.equal(existsSync(paths.scratchMd), false);
+
+    const index = readFileSync(join(dataRoot, "data", "pdf-index.tsv"), "utf8");
+    assert.match(index, /\toutput\/cv-alex-chen-001-acme-2026-11-11\.docx\toutput\/cv-alex-chen-001-acme-2026-11-11\.md\tletter\t\d{4}-\d{2}-\d{2}\tcv/);
+    const tracker = readFileSync(join(dataRoot, "data", "applications.md"), "utf8");
+    assert.match(tracker, /\| Word \|/);
+    assert.match(tracker, /\| 1 \| 2026-11-11 \| Acme \| Engineer \| 4\.2\/5 \| Evaluated \| ✅ \|/);
+    const honestDocx = readFileSync(paths.finalDocx);
+
+    const blockedSameDay = resolveDocxPaths("001", "2026-11-11", dataRoot, () => join(dataRoot, "reports", "001-acme-2026-11-11.md"));
+    writeCvMarkdown({ docxPaths: blockedSameDay.paths, markdown: INFLATED_CV });
+    const blocked = await renderAndMarkDocx({
+      spawnFn,
+      execPath: process.execPath,
+      root: REPO,
+      docxPaths: blockedSameDay.paths,
+      reportNum: blockedSameDay.paths.reportNum,
+    });
+    assert.equal(blocked.kind, "render-failed");
+    assert.match(blocked.error, /99\.99%|\$40m|30 engineers/i);
+    assert.equal(readFileSync(paths.md, "utf8"), HONEST_CV);
+    assert.deepEqual(readFileSync(paths.finalDocx), honestDocx);
+    assert.equal(existsSync(blockedSameDay.paths.scratchMd), false);
+    assert.deepEqual(outputMarkdown(dataRoot), ["cv-alex-chen-001-acme-2026-11-11.md"]);
+
+    const nextDay = resolveDocxPaths("001", "2026-11-12", dataRoot, () => join(dataRoot, "reports", "001-acme-2026-11-11.md"));
+    writeCvMarkdown({ docxPaths: nextDay.paths, markdown: INFLATED_CV });
+    const orphan = await renderAndMarkDocx({
+      spawnFn,
+      execPath: process.execPath,
+      root: REPO,
+      docxPaths: nextDay.paths,
+      reportNum: nextDay.paths.reportNum,
+    });
+    assert.equal(orphan.kind, "render-failed");
+    assert.equal(existsSync(nextDay.paths.md), false);
+    assert.equal(existsSync(nextDay.paths.finalDocx), false);
+    assert.equal(existsSync(nextDay.paths.scratchMd), false);
+    assert.deepEqual(outputMarkdown(dataRoot), ["cv-alex-chen-001-acme-2026-11-11.md"]);
+    assert.equal(readFileSync(join(dataRoot, "data", "applications.md"), "utf8"), tracker);
+  });
 });

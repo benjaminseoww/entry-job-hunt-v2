@@ -1,24 +1,15 @@
 import { NextRequest } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
-import { careerOpsRoot, isRegularContainedFile, pdfPathStatusForReport } from "@/lib/career-ops";
+import { careerOpsRoot, pdfPathStatusForReport } from "@/lib/career-ops";
 import { resolvePdfIndexPath } from "@/lib/core/pdf-index";
 import { pdfIndexCompanionForReport } from "@/lib/apply/cv-selection.mjs";
 import { isDocxPath } from "@/lib/cv-format.mjs";
+import { containedPreviewMarkdown, PREVIEW_HEADERS, siblingMarkdown } from "@/lib/cv-preview.mjs";
 import { garamondPreviewHtml } from "@/lib/garamond-preview.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function containedOutputFile(abs: string, outputDir: string): string | null {
-  const resolved = path.resolve(abs);
-  if (!isRegularContainedFile(resolved, outputDir)) return null;
-  return resolved;
-}
-
-function siblingMarkdown(docxPath: string): string {
-  return docxPath.replace(/\.docx$/i, ".md");
-}
 
 export async function GET(req: NextRequest) {
   const n = (req.nextUrl.searchParams.get("n") ?? "").trim();
@@ -40,13 +31,13 @@ export async function GET(req: NextRequest) {
       const tsv = fs.readFileSync(indexPath, "utf8");
       const companion = pdfIndexCompanionForReport(tsv, Number.parseInt(n, 10));
       if (companion.found && companion.html) {
-        mdPath = containedOutputFile(path.resolve(root, companion.html), outputDir);
+        mdPath = containedPreviewMarkdown(path.resolve(root, companion.html), outputDir);
       }
     } catch {
       /* fall through to sibling */
     }
   }
-  if (!mdPath) mdPath = containedOutputFile(siblingMarkdown(exact.path), outputDir);
+  if (!mdPath) mdPath = containedPreviewMarkdown(siblingMarkdown(exact.path), outputDir);
   if (!mdPath) return new Response("Preview of the Word file is unavailable", { status: 404 });
 
   let markdown: string;
@@ -65,9 +56,6 @@ export async function GET(req: NextRequest) {
   });
   return new Response(html, {
     status: 200,
-    headers: {
-      "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "no-store",
-    },
+    headers: PREVIEW_HEADERS,
   });
 }
