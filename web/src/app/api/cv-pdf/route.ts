@@ -4,19 +4,11 @@ import path from "node:path";
 import { resolveTailoredCv } from "@/lib/apply/cv";
 import { careerOpsRoot, isRegularContainedFile, pdfPathStatusForReport } from "@/lib/career-ops";
 import { companySlug } from "@/lib/company-slug.mjs";
-import { inlineDisposition } from "@/lib/content-disposition.mjs";
 import { matchesTailoredCv, sortNewestFirst } from "@/lib/apply/cv-match.mjs";
+import { servePdf } from "@/lib/serve-cv-file.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function servePdf(file: string): Response {
-  const buf = fs.readFileSync(file);
-  return new Response(new Uint8Array(buf), {
-    status: 200,
-    headers: { "Content-Type": "application/pdf", "Content-Disposition": inlineDisposition(path.basename(file)), "Cache-Control": "no-store" },
-  });
-}
 
 // Serve the tailored CV PDF the pdf mode wrote to output/ for a given offer.
 // Inline so it opens in the browser. Local-first: reads the user's own output/

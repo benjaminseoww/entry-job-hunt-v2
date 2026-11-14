@@ -4,7 +4,7 @@
  * generate-docx.mjs — render a tailored resume markdown file as a Word
  * document in the Garamond layout of templates/docx/garamond/.
  *
- *   node generate-docx.mjs <tailored.md> <out.docx> [--template=garamond] [--json] [--skip-fact-check]
+ *   node generate-docx.mjs <tailored.md> <out.docx> [--template=garamond] [--report=NNN] [--json] [--skip-fact-check]
  *
  * Headings and section order come from the markdown exactly as written; the
  * template supplies only the look (see lib/docx-resume.mjs for the three
@@ -12,8 +12,10 @@
  * compared with the markdown in both directions before anything is written.
  * Any difference is a failure and the exit code is 1.
  *
- * This script writes the .docx only. It does not touch the tracker, the PDF
- * index or any report; wiring those is a later step.
+ * --report records the .docx in data/pdf-index.tsv after a verified write
+ * (pdf = the .docx, html = the input .md, format = letter, kind = cv). Without
+ * --report no index row is written. The tracker cell is left to
+ * mark-pdf-ready.mjs. US Letter only; there is no --format flag.
  *
  * Writes go to a temp file in the real parent directory (random suffix, wx),
  * then renameSync onto the destination basename. rename replaces a symlink
@@ -32,18 +34,20 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, realpathSyn
 import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { validateFlags } from './lib/cli-flags.mjs';
+import { flagValue, hasFlag, validateFlags } from './lib/cli-flags.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
+import { recordIndexRow } from './lib/pdf-index.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
+import { resolveTrackerPath, resolveWorkspaceRootFor } from './tracker-utils.mjs';
 import { assertFacts } from './verify-cv-facts.mjs';
 import { buildDocx, compareContent, pageLengthWarning } from './lib/docx-resume.mjs';
 
 const PROJECT_ROOT = dirname(fileURLToPath(import.meta.url));
-const KNOWN_FLAGS = ['--template', '--json', '--skip-fact-check', '--help', '-h'];
-const VALUE_FLAGS = ['--template'];
+const KNOWN_FLAGS = ['--template', '--json', '--skip-fact-check', '--help', '-h', '--report'];
+const VALUE_FLAGS = ['--template', '--report'];
 const OUTSIDE_ERROR = 'Refusing to write the .docx outside the project directory, data root, or temp directory';
 const USAGE = `Usage:
-  node generate-docx.mjs <tailored.md> <out.docx> [--template=garamond] [--json] [--skip-fact-check]
+  node generate-docx.mjs <tailored.md> <out.docx> [--template=garamond] [--report=NNN] [--json] [--skip-fact-check]
 
 Renders a tailored resume markdown file as a Word document. Headings and
 section order are taken from the markdown unchanged; the template supplies the
@@ -52,6 +56,7 @@ word gained or lost fails the run and writes nothing. The fact gate runs when
 the data root has a cv.md; a blocked document is not written.
 
   --template=NAME       template under templates/docx/ (default: garamond)
+  --report=NNN          record the .docx in data/pdf-index.tsv for this report
   --json                print the result as JSON
   --skip-fact-check     write without running the fact gate
   --help, -h            show this message`;
@@ -250,6 +255,8 @@ async function main() {
     else if (a === '--skip-fact-check') skipFactCheck = true;
     else if (a.startsWith('--template=')) template = a.slice('--template='.length);
     else if (a === '--template') template = argv[++i];
+    else if (a.startsWith('--report=')) continue;
+    else if (a === '--report') i += 1;
     else positional.push(a);
   }
   if (positional.length !== 2) {
@@ -257,9 +264,40 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  const result = generateDocx({ input: positional[0], output: positional[1], template, skipFactCheck });
+  const reportNum = hasFlag(argv, '--report') ? flagValue(argv, '--report') : undefined;
+  if (reportNum !== undefined && !/^\d+$/.test(String(reportNum))) {
+    console.error(`generate-docx: Invalid --report "${reportNum ?? ''}". Use a numeric report number, e.g. --report=42.`);
+    process.exitCode = 1;
+    return;
+  }
+  let result = generateDocx({ input: positional[0], output: positional[1], template, skipFactCheck });
   if (result.factCheck?.verdict === 'skipped') {
     console.error(`fact gate skipped: ${result.factCheck.reason}`);
+  }
+  // Index even when the fact gate was skipped: the write was still verified
+  // against the markdown, and --report is what later readers key on.
+  if (result.ok && reportNum !== undefined) {
+    const root = getCareerOpsRoot();
+    try {
+      const path = await recordIndexRow({
+        trackerPath: resolveTrackerPath(root),
+        workspaceRoot: resolveWorkspaceRootFor(root),
+        reportNum,
+        file: result.output,
+        companion: resolve(positional[0]),
+        format: 'letter',
+        kind: 'cv',
+      });
+      result = { ...result, index: { ok: true, path } };
+    } catch (error) {
+      result = {
+        ...result,
+        index: { ok: false, error: error instanceof Error ? error.message : String(error) },
+      };
+    }
+  }
+  if (result.index && !result.index.ok) {
+    console.error(`generate-docx: index failed: ${result.index.error}`);
   }
   if (json) console.log(JSON.stringify(result, null, 2));
   else if (result.ok) {

@@ -25,11 +25,12 @@ import { readFileSync, existsSync, readdirSync, copyFileSync, realpathSync, stat
 import { join, dirname, resolve, relative, isAbsolute } from 'path';
 import { fileURLToPath } from 'url';
 import { normalizeReportLink } from './tracker-links.mjs';
-import { getCareerOpsRoot } from './path-resolver.mjs';
+import { getCareerOpsRoot, getProfilePath } from './path-resolver.mjs';
 import { flagValue, validateFlags } from './lib/cli-flags.mjs';
 import { withPipelineLock, LockTimeoutError } from './pipeline-lock.mjs';
 import { writeFileAtomic } from './tracker-utils.mjs';
 import { sectionKind, processedHeadingFor } from './lib/pipeline-sections.mjs';
+import { loadYaml } from './lib/yaml-document.mjs';
 
 const CAREER_OPS = getCareerOpsRoot();
 const CODEBASE_ROOT = dirname(fileURLToPath(import.meta.url));
@@ -169,14 +170,32 @@ function resolveScore(stateScore, reportFile) {
   return 'N/A';
 }
 
-// The batch report header names the PDF path when one was generated, and
+function readCvOutputFormat() {
+  try {
+    const doc = loadYaml(readFileSync(getProfilePath(CAREER_OPS), 'utf8'));
+    return String(doc?.cv?.output_format ?? '').trim().toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function isGeneratedCvField(rep) {
+  // A filename ending in .pdf or .docx (path or basename), not a bare
+  // extension mention in a localized "not generated" note.
+  return !!(rep && (/[^\s]+\.pdf\b/i.test(rep) || /[^\s]+\.docx\b/i.test(rep) || rep.includes('✅')));
+}
+
+// The batch report header names the CV path when one was generated, and
 // otherwise says "not generated" in the user's output language. Only the path
 // is the same in every language.
 function resolvePdf(reportFile) {
-  const rep = readReportField(reportFile, 'PDF');
-  // A filename ending in .pdf (path or basename), not a bare ".pdf" mention in
-  // a localized "not generated" note.
-  return rep && (/[^\s]+\.pdf\b/i.test(rep) || rep.includes('✅')) ? '✅' : '❌';
+  return isGeneratedCvField(readReportField(reportFile, 'PDF')) ? '✅' : '❌';
+}
+
+function cvProcessedLabel(rep, outputFormat, mark) {
+  if (/[^\s]+\.pdf\b/i.test(rep || '')) return `PDF ${mark}`;
+  const word = /[^\s]+\.docx\b/i.test(rep || '') || outputFormat === 'docx';
+  return `${word ? 'Word' : 'PDF'} ${mark}`;
 }
 
 // ---- parse pipeline.md ----
@@ -235,6 +254,7 @@ function reconcile() {
   const movedProcLines = [];
   const moved = [];
   const skippedNoReport = [];
+  const outputFormat = readCvOutputFormat();
 
   for (let i = pendStart + 1; i < pendEnd; i++) {
     if (!PENDING_ITEM_RE.test(lines[i])) continue; // blank lines, "- [!]" errors → keep
@@ -252,7 +272,7 @@ function reconcile() {
 
     if (done.dealbreaker) {
       const [, company = '', role = ''] = body.split('|').map(s => s.trim());
-      movedProcLines.push(`- [x] SKIP | ${url} | ${company} | ${role} | N/A | PDF ❌`);
+      movedProcLines.push(`- [x] SKIP | ${url} | ${company} | ${role} | N/A | ${cvProcessedLabel('', outputFormat, '❌')}`);
       moved.push({ url, company, role, num: '-', score: 'SKIP, dealbreaker' });
       procUrls.add(url);
       removeIdx.add(i);
@@ -270,11 +290,12 @@ function reconcile() {
     const company = parts[1] || '';
     const role = parts[2] || '';
     const score = resolveScore(done.score, reportFile);
+    const pdfField = readReportField(reportFile, 'PDF');
     const pdf = resolvePdf(reportFile);
     const num = parseInt(done.reportNum, 10);
 
     const reportLink = normalizeReportLink(`[${num}](reports/${reportFile})`, dirname(PIPELINE_FILE), CAREER_OPS);
-    movedProcLines.push(`- [x] ${reportLink} | ${url} | ${company} | ${role} | ${score} | PDF ${pdf}`);
+    movedProcLines.push(`- [x] ${reportLink} | ${url} | ${company} | ${role} | ${score} | ${cvProcessedLabel(pdfField, outputFormat, pdf)}`);
     moved.push({ url, company, role, num, score });
     procUrls.add(url);
     removeIdx.add(i);

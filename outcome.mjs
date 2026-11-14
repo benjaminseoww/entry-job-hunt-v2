@@ -10,7 +10,7 @@
  *   interview_progress | offer_received | hired | offer_declined | rejected | no_response | interview_only
  *
  * Artifacts saved in data/outcomes/{num}_{company_slug}_{role_slug}/:
- *   - submitted_cv.md
+ *   - submitted_cv.pdf / submitted_cv.docx / submitted_cv.md
  *   - submitted_cover_letter.md (if provided)
  *   - posting.pdf or posting_missing.md (explicit stub)
  *   - outcome.md (append-only outcome journal)
@@ -23,7 +23,7 @@ import { join, dirname, resolve, extname } from 'path';
 import { fileURLToPath } from 'url';
 import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
-import { parseTrackerRow, resolveColumns, extractTrackerReportNumbers } from './tracker-parse.mjs';
+import { parseTrackerRow, resolveColumns, extractTrackerReportNumbers, firstLinkTarget } from './tracker-parse.mjs';
 // The vocabulary this CLI accepts is also READ by calibrate.mjs, which cannot
 // import this file (top-level CLI, exits on load). Shared so the two cannot
 // drift — they already had (#3315 shipped a 7-entry copy of these 14).
@@ -35,6 +35,7 @@ import {
   resolvePdfIndexPath,
   resolveTrackerPath,
   resolveWorkspaceRoot,
+  trackerLinkDirsFor,
 } from './tracker-utils.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import { localToday } from './lib/local-today.mjs';
@@ -245,8 +246,28 @@ const noteToAppend = flags.note || (flags.stage ? `${outcomeConfig.defaultNote}:
 // --dry-run preview and the real run agree on exactly what would be archived
 // and, if --clean-output is set, what would be removed from output/ afterward.
 let cvResolvedPath = null;
-let isPdf = false;
+let isGeneratedCv = false;
 let explicitCvBytes = null;
+
+function destNameForCv(pathValue) {
+  const p = String(pathValue ?? '').toLowerCase();
+  if (p.endsWith('.pdf')) return 'submitted_cv.pdf';
+  if (p.endsWith('.docx')) return 'submitted_cv.docx';
+  return 'submitted_cv.md';
+}
+
+function isGeneratedCvPath(pathValue) {
+  const p = String(pathValue ?? '').toLowerCase();
+  return p.endsWith('.pdf') || p.endsWith('.docx');
+}
+
+function pathFromCvCell(cell) {
+  const text = String(cell ?? '').trim();
+  if (!text || text === '—' || text === '-' || text === '✅' || text === '❌') return '';
+  const link = firstLinkTarget(text);
+  const raw = (link || text).replace(/^local:/, '').trim();
+  return isGeneratedCvPath(raw) ? raw : '';
+}
 
 // Case A: A custom CV path is explicitly passed via CLI options.
 if (flags.cv !== null) {
@@ -266,19 +287,24 @@ if (flags.cv !== null) {
     failExit(`Selected CV is not a readable file: ${flags.cv} (${err.message})`, 'invalid-cv', 1);
   }
   cvResolvedPath = selectedCv;
-  isPdf = selectedCv.toLowerCase().endsWith('.pdf');
+  isGeneratedCv = isGeneratedCvPath(selectedCv);
 } else {
-  // Case B: Read tracker's PDF column cell and resolve its path.
-  if (matchedRow.pdf && matchedRow.pdf !== '—' && matchedRow.pdf !== '-') {
-    const rawPdfPath = matchedRow.pdf.replace(/^local:/, '');
-    const fullPdfPath = join(repoRoot, rawPdfPath);
-    if (existsSync(fullPdfPath)) {
-      cvResolvedPath = fullPdfPath;
-      isPdf = true;
+  // Case B: a tracker cell that still names a file (legacy path or markdown
+  // link). ✅ / ❌ cells are not paths — those fall through to the index.
+  const rawPdfPath = pathFromCvCell(matchedRow.pdf);
+  if (rawPdfPath) {
+    const normalized = rawPdfPath.replace(/\\/g, '/');
+    for (const dir of [...trackerLinkDirsFor(DATA_ROOT), repoRoot]) {
+      const fullPdfPath = resolve(dir, normalized);
+      if (existsSync(fullPdfPath)) {
+        cvResolvedPath = fullPdfPath;
+        isGeneratedCv = isGeneratedCvPath(fullPdfPath);
+        break;
+      }
     }
   }
 
-  // Case C: Lookup data/pdf-index.tsv to find PDF mapping for the linked report number.
+  // Case C: Lookup data/pdf-index.tsv to find the CV mapping for the linked report number.
   if (!cvResolvedPath) {
     const manifestPath = resolvePdfIndexPath(appsFile);
     if (existsSync(manifestPath)) {
@@ -292,7 +318,7 @@ if (flags.cv !== null) {
             const fullPdfPath = join(repoRoot, mappedPdf.replace(/^local:/, ''));
             if (existsSync(fullPdfPath)) {
               cvResolvedPath = fullPdfPath;
-              isPdf = true;
+              isGeneratedCv = isGeneratedCvPath(fullPdfPath);
               break;
             }
           }
@@ -304,15 +330,16 @@ if (flags.cv !== null) {
   }
 }
 
-// Any resolved PDF — auto-detected (Cases B/C) or an explicit --cv (Case A) —
-// is eligible for cleanup as long as it resolves inside output/: that boundary,
-// not which case found it, is what keeps deletion scoped to generated CVs. An
-// explicit --cv pointing outside output/ (e.g. into the user's home directory)
-// is never a candidate, and neither is the cv.md fallback (Case D), since it
-// never sets isPdf. pathIsInsideCanonical() (tracker-utils.mjs) is applied to
-// BOTH the PDF and its manifest-sourced HTML companion — the manifest is
-// host-writable data, so a malformed or manipulated html column must never be
-// trusted to point outside output/ without being re-checked here too.
+// Any resolved generated CV (.pdf or .docx) — auto-detected (Cases B/C) or an
+// explicit --cv (Case A) — is eligible for cleanup as long as it resolves
+// inside output/: that boundary, not which case found it, is what keeps
+// deletion scoped to generated CVs. An explicit --cv pointing outside output/
+// (e.g. into the user's home directory) is never a candidate, and neither is
+// the cv.md fallback (Case D), since it never sets isGeneratedCv.
+// pathIsInsideCanonical() (tracker-utils.mjs) is applied to BOTH the CV and
+// its manifest-sourced companion (HTML or .md) — the manifest is host-writable
+// data, so a malformed or manipulated html column must never be trusted to
+// point outside output/ without being re-checked here too.
 //
 // Canonical, not merely lexical: resolve() does not follow symlinks, so a link
 // inside output/ pointing elsewhere would otherwise spell itself as contained
@@ -322,7 +349,7 @@ let cvFromOutputDir = false;
 let htmlResolvedPath = null;
 const outputDir = resolve(repoRoot, 'output');
 const resolvedCvAbs = cvResolvedPath ? resolve(cvResolvedPath) : null;
-if (isPdf && resolvedCvAbs && pathIsInsideCanonical(resolvedCvAbs, outputDir)) {
+if (isGeneratedCv && resolvedCvAbs && pathIsInsideCanonical(resolvedCvAbs, outputDir)) {
   cvFromOutputDir = true;
   const manifestPath = resolvePdfIndexPath(appsFile);
   if (existsSync(manifestPath)) {
@@ -374,7 +401,7 @@ if (flags.dryRun) {
         console.log(`🔍 Dry-run: would archive then remove from output/ (after verifying the archive):`);
         for (const p of cleanupCandidates) console.log(`   - ${p}`);
       } else {
-        console.log(`🔍 Dry-run: --clean-output requested but no matching output/ PDF/HTML found for this row`);
+        console.log(`🔍 Dry-run: --clean-output requested but no matching output/ CV found for this row`);
       }
     }
   }
@@ -400,7 +427,7 @@ try {
 try {
   try {
     if (cvResolvedPath && (flags.cv !== null || existsSync(cvResolvedPath))) {
-      const destName = isPdf ? 'submitted_cv.pdf' : 'submitted_cv.md';
+      const destName = destNameForCv(cvResolvedPath);
       const cvDestPath = join(outcomeDir, destName);
       if (!existsSync(cvDestPath)) {
         if (flags.cv !== null) {
@@ -428,7 +455,7 @@ try {
           copyFileSync(cvResolvedPath, cvDestPath);
         }
       }
-      if (isPdf) archivedCvPdfPath = cvDestPath;
+      if (isGeneratedCv) archivedCvPdfPath = cvDestPath;
     } else {
       // Case D: Fallback to the master root cv.md.
       const masterCv = resolve(repoRoot, 'cv.md');
@@ -449,10 +476,12 @@ try {
   throw err;
 }
 
-// 1b. Snapshot the companion HTML CV — only archived (and thus only eligible for
-// cleanup) when --clean-output is set, since it isn't needed by any other outcome.
+// 1b. Snapshot the companion readable CV (HTML or tailored .md) — only archived
+// (and thus only eligible for cleanup) when --clean-output is set, since it
+// isn't needed by any other outcome.
 if (flags.cleanOutput && htmlResolvedPath && existsSync(htmlResolvedPath)) {
-  const htmlDestPath = join(outcomeDir, 'submitted_cv.html');
+  const companionName = /\.md$/i.test(htmlResolvedPath) ? 'submitted_cv.md' : 'submitted_cv.html';
+  const htmlDestPath = join(outcomeDir, companionName);
   if (!existsSync(htmlDestPath)) {
     copyFileSync(htmlResolvedPath, htmlDestPath);
   }
@@ -651,7 +680,7 @@ if (flags.json) {
     for (const p of cleanup.removed) console.log(`🗑️  Removed from output/ (archived copy verified): ${p}`);
     for (const r of cleanup.refused) console.log(`⚠️  Left in output/ (${r.reason}): ${r.path}`);
     if (!cleanup.removed.length && !cleanup.refused.length) {
-      console.log(`ℹ️  --clean-output requested but no matching output/ PDF/HTML found for this row`);
+      console.log(`ℹ️  --clean-output requested but no matching output/ CV found for this row`);
     }
   }
 }

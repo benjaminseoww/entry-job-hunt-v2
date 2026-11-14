@@ -48,10 +48,10 @@ test('docx mode runs the title check and structure check against cv.md', () => {
   assert.match(mode, /node verify-cv-structure\.mjs /);
 });
 
-test('docx mode does not write the tracker or the PDF index', () => {
-  assert.match(mode, /Leave the tracker's PDF\/Word column alone/);
-  assert.match(mode, /does \*\*not\*\* write the tracker CV column or `data\/pdf-index\.tsv`/);
-  assert.match(mode, /not yet visible in the tracker/);
+test('docx mode indexes the Word file and marks the tracker ready', () => {
+  assert.match(mode, /--report=\{report number\}/);
+  assert.match(mode, /node mark-pdf-ready\.mjs \{report number\}/);
+  assert.match(mode, /\*\*PDF:\*\* output\/cv-\{candidate\}-\{report\}-\{company\}-\{YYYY-MM-DD\}\.docx/);
 });
 
 test('docx mode shows the markdown shape and a Windows-safe temp path', () => {
