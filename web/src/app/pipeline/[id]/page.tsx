@@ -1,11 +1,18 @@
 import { notFound } from "next/navigation";
+<<<<<<< HEAD
 import { careerOpsRoot, readReport, findApplication, pdfPathForReport, pdfReadyForReport, trackerCanDelete } from "@/lib/career-ops";
 import { isDocxPath } from "@/lib/cv-format.mjs";
 import { readCvOutputFormat } from "@/lib/cv-output-format.mjs";
+=======
+import { readReport, findApplication, trackerCanDelete } from "@/lib/career-ops";
+>>>>>>> career-ops-v1.40.0
 import { resolveTailoredCover } from "@/lib/apply/cover";
 import { ReportView } from "@/components/report-view";
 import { pipelineQuery } from "@/lib/pipeline-navigation.mjs";
 import { reportNumberFor } from "@/lib/apply-checklist.mjs";
+import { readCvDiskState } from "@/lib/read-cv-disk";
+import { parseReport } from "@/lib/format";
+import { missingTrackedJob } from "@/lib/job-route.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -17,14 +24,22 @@ export default async function ReportPage({ params, searchParams }: {
   const query = pipelineQuery(await searchParams);
   const app = findApplication(id);
   const report = readReport(id);
-  if (!app && !report) notFound();
+  if (missingTrackedJob({ hasApplication: !!app, hasReport: !!report })) notFound();
   // Resolved here rather than in the component so the link is only rendered when
   // THIS application's cover is actually on disk. `id` is passed as the
   // application number, never as a company: a report with no tracker row has no
   // identity to match on, and guessing one from the id would surface another
   // offer's cover.
   const coverReady = (await resolveTailoredCover(app?.company, id)) !== null;
+<<<<<<< HEAD
   const cvPath = await pdfPathForReport(id);
+=======
+  // Same name the View link puts in ?company=, so a slug match here is the file that link would open.
+  const companyName = app?.company || parseReport(report?.content ?? "").title || "";
+  const reportNum = reportNumberFor(id, app, report?.file ?? null);
+  const disk = await readCvDiskState(id, companyName, (app?.pdf ?? "").includes("✅"), reportNum);
+  const pdfFileReady = disk.exists;
+>>>>>>> career-ops-v1.40.0
   return (
     <ReportView
       id={id}
@@ -32,13 +47,18 @@ export default async function ReportPage({ params, searchParams }: {
       report={report?.content ?? null}
       file={report?.file ?? null}
       canDelete={trackerCanDelete()}
+<<<<<<< HEAD
       pdfReadyFromIndex={await pdfReadyForReport(id)}
       cvOutputFormat={readCvOutputFormat(careerOpsRoot())}
       cvIsWord={isDocxPath(cvPath)}
+=======
+      pdfFileReady={pdfFileReady}
+      trackerMarkedPdf={(app?.pdf ?? "").includes("✅")}
+>>>>>>> career-ops-v1.40.0
       coverReady={coverReady}
       backHref={`/pipeline${query ? `?${query}` : ""}`}
       applyHref={`/pipeline/${encodeURIComponent(id)}/apply${query ? `?${query}` : ""}`}
-      reportNum={reportNumberFor(id, app, report?.file ?? null)}
+      reportNum={reportNum}
     />
   );
 }

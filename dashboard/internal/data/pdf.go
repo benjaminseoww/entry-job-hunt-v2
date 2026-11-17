@@ -222,6 +222,12 @@ func globTailoredCVs(careerOpsPath string) []string {
 	return all
 }
 
+// reOverflowDraft matches the sibling draft generate-pdf.mjs writes when a
+// render runs over its page budget: {name}.overflow.pdf, then .overflow-2.pdf
+// and so on when that name is taken. The draft is the version the budget
+// rejected, kept for inspection only, and is never the PDF to open (#6377).
+var reOverflowDraft = regexp.MustCompile(`\.overflow(-\d+)?\.pdf$`)
+
 // ResolvePDFs returns candidate CV paths (relative to careerOpsPath) for an
 // application, best match first. Indexed rows are returned as recorded, so a
 // .docx path from the index is used as-is.
@@ -252,6 +258,9 @@ func ResolvePDFs(careerOpsPath string, app model.CareerApplication, manifest PDF
 	var matches []string
 	for _, p := range globTailoredCVs(careerOpsPath) {
 		base := strings.ToLower(filepath.Base(p))
+		if reOverflowDraft.MatchString(base) {
+			continue
+		}
 		if matchesCompanySlug(base, slug) {
 			if rel, err := filepath.Rel(careerOpsPath, p); err == nil {
 				matches = append(matches, filepath.ToSlash(rel))
