@@ -92,8 +92,9 @@ try {
 
   parserRuns = 0;
   const auditRows = await auditCompanies([explicit], { providers: reg, httpCtx });
-  if (parserRuns === 0 && auditRows.length === 1 && auditRows[0].provider !== 'local-parser') {
-    pass('audit-portals does not execute an explicit local-parser entry');
+  if (parserRuns === 0 && auditRows.length === 1
+    && auditRows[0].verdict === 'error' && /not found/.test(auditRows[0].detail || '')) {
+    pass('audit-portals does not execute a missing local-parser script; it reports the gap as error');
   } else {
     fail(`audit-portals ran the local parser ${parserRuns} time(s): ${JSON.stringify(auditRows)}`);
   }
