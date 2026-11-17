@@ -2,7 +2,7 @@
 // rewrite, crashed the scheduled sync before it pushed a branch.
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, existsSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pass, fail, getBash, ROOT } from './helpers.mjs';
@@ -16,6 +16,13 @@ const skillPath = join(ROOT, SKILL);
 const script = readFileSync(scriptPath, 'utf8');
 const skill = readFileSync(skillPath, 'utf8');
 const conflictHead = `${'<'.repeat(7)} HEAD`;
+
+function bashWithEnv(bash, script, extraEnv) {
+  return execFileSync(bash, ['-c', script], {
+    encoding: 'utf8',
+    env: { ...process.env, ...extraEnv },
+  });
+}
 
 {
   const syntax = spawnSync(getBash(), ['-n', scriptPath], { encoding: 'utf8' });
@@ -34,10 +41,11 @@ const conflictHead = `${'<'.repeat(7)} HEAD`;
   }
 }
 
-if (!script.includes(conflictHead)) {
-  pass(`${SCRIPT} does not contain a git-grep-able ${conflictHead} line`);
+if (!script.includes(conflictHead) && !skill.includes(conflictHead)
+  && !skill.includes('='.repeat(7)) && !skill.includes('>'.repeat(7))) {
+  pass(`${SCRIPT} and ${SKILL} do not contain a git-grep-able conflict marker`);
 } else {
-  fail(`${SCRIPT} still contains a literal conflict marker Copilot greps for`);
+  fail(`${SCRIPT} or ${SKILL} still contains a literal conflict marker Copilot greps for`);
 }
 
 {
@@ -143,34 +151,105 @@ echo unreachable
 }
 
 {
-  // Windows CI has no rsync; simulate restore+overlay with Node copies.
-  const root = mkdtempSync(join(tmpdir(), 'co-sync-overlay-'));
-  try {
-    const pre = join(root, 'pre-agent');
-    const work = join(root, 'work');
-    const agent = join(root, 'agent-files');
-    mkdirSync(join(pre, 'lib'), { recursive: true });
-    mkdirSync(join(work, 'lib'), { recursive: true });
-    mkdirSync(join(agent, 'lib'), { recursive: true });
-    writeFileSync(join(pre, 'keep-me.txt'), 'fork\n');
-    writeFileSync(join(work, 'keep-me.txt'), 'fork\n');
-    writeFileSync(join(pre, 'lib', 'schema.mjs'), 'original\n');
-    writeFileSync(join(work, 'lib', 'schema.mjs'), 'conflicted-try\n');
-    writeFileSync(join(work, 'sneaky.txt'), 'copilot extra\n');
-    writeFileSync(join(agent, 'lib', 'schema.mjs'), 'conflicted-try\n');
+  const bash = getBash();
+  const rsync = spawnSync('rsync', ['--version'], { encoding: 'utf8' });
+  if (!bash) {
+    pass('restore + overlay real functions: no bash on this platform');
+  } else if (rsync.error && rsync.error.code === 'ENOENT') {
+    pass('restore + overlay real functions: rsync is not installed');
+  } else {
+    const root = mkdtempSync(join(tmpdir(), 'co-sync-overlay-'));
+    try {
+      const runnerTemp = join(root, 'runner');
+      const pre = join(runnerTemp, 'pre-agent');
+      const work = join(root, 'work');
+      const agent = join(runnerTemp, 'agent-files');
+      mkdirSync(join(pre, 'lib'), { recursive: true });
+      mkdirSync(join(work, 'lib'), { recursive: true });
+      mkdirSync(join(agent, 'lib'), { recursive: true });
+      mkdirSync(join(pre, 'empty-keep'), { recursive: true });
+      writeFileSync(join(pre, 'keep-me.txt'), 'fork\n');
+      writeFileSync(join(pre, 'link-target.txt'), 'target\n');
+      writeFileSync(join(pre, 'lib', 'schema.mjs'), 'original\n');
+      writeFileSync(join(work, 'keep-me.txt'), 'fork\n');
+      writeFileSync(join(work, 'lib', 'schema.mjs'), 'conflicted-try\n');
+      writeFileSync(join(work, 'sneaky.txt'), 'copilot extra\n');
+      writeFileSync(join(agent, 'lib', 'schema.mjs'), 'conflicted-try\n');
+      writeFileSync(join(runnerTemp, 'conflicts-after.txt'), 'lib/schema.mjs\n');
+      writeFileSync(join(runnerTemp, 'index.before'), 'index-backup\n');
+      writeFileSync(join(work, 'git-index'), 'stale-index\n');
+      symlinkSync('link-target.txt', join(pre, 'keep-link'));
 
-    rmSync(work, { recursive: true, force: true });
-    cpSync(pre, work, { recursive: true });
-    mkdirSync(join(work, 'lib'), { recursive: true });
-    cpSync(join(agent, 'lib', 'schema.mjs'), join(work, 'lib', 'schema.mjs'));
-    const kept = readFileSync(join(work, 'keep-me.txt'), 'utf8');
-    const overlay = readFileSync(join(work, 'lib', 'schema.mjs'), 'utf8');
-    if (kept === 'fork\n' && overlay === 'conflicted-try\n' && !existsSync(join(work, 'sneaky.txt'))) {
-      pass('restore + overlay keeps only the conflicted file from Copilot');
-    } else {
-      fail(`overlay contract mismatch: keep=${JSON.stringify(kept)} overlay=${JSON.stringify(overlay)}`);
+      const overlayEnv = {
+        RUNNER_TEMP: runnerTemp,
+        GIT_INDEX: join(work, 'git-index'),
+        SCRIPT_PATH: scriptPath,
+        WORK: work,
+      };
+      const out = bashWithEnv(bash, `
+        set -euo pipefail
+        source "$SCRIPT_PATH"
+        cd "$WORK"
+        restore_pre_agent
+        git init -q
+        overlay_agent_files
+        assert_only_conflicted_files_differ_from_pre_agent
+        echo overlay-ok
+      `, overlayEnv).trim();
+
+      const kept = readFileSync(join(work, 'keep-me.txt'), 'utf8');
+      const overlay = readFileSync(join(work, 'lib', 'schema.mjs'), 'utf8');
+      const link = execFileSync('readlink', [join(work, 'keep-link')], { encoding: 'utf8' }).trim();
+      if (out === 'overlay-ok' && kept === 'fork\n' && overlay === 'conflicted-try\n'
+        && !existsSync(join(work, 'sneaky.txt')) && link === 'link-target.txt'
+        && existsSync(join(work, 'empty-keep'))) {
+        pass('restore + overlay real functions keep only the conflicted file, plus symlinks and empty dirs');
+      } else {
+        fail(`overlay contract mismatch: out=${JSON.stringify(out)} keep=${JSON.stringify(kept)} overlay=${JSON.stringify(overlay)} link=${JSON.stringify(link)}`);
+      }
+
+      mkdirSync(join(work, 'empty-extra'));
+      writeFileSync(join(work, 'sneaky2.txt'), 'nope\n');
+      symlinkSync('keep-me.txt', join(work, 'extra-link'));
+      let extraCaught = false;
+      try {
+        bashWithEnv(bash, `
+          set -euo pipefail
+          source "$SCRIPT_PATH"
+          cd "$WORK"
+          assert_only_conflicted_files_differ_from_pre_agent
+        `, overlayEnv);
+      } catch (err) {
+        extraCaught = /not in the conflict list/.test(String(err.stderr || err.stdout || err.message));
+      }
+      if (extraCaught) pass('assert_only_conflicted_files_differ_from_pre_agent flags extra files, symlinks, and empty dirs');
+      else fail('assert did not flag extra files/symlinks/empty dirs');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
-  } finally {
-    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+{
+  const bash = getBash();
+  if (!bash) {
+    pass('separator-marker detection: no bash on this platform');
+  } else {
+    const root = mkdtempSync(join(tmpdir(), 'co-sync-sep-'));
+    try {
+      const runnerTemp = join(root, 'runner');
+      mkdirSync(join(runnerTemp, 'agent-files', 'lib'), { recursive: true });
+      writeFileSync(join(runnerTemp, 'conflicts-after.txt'), 'lib/schema.mjs\n');
+      writeFileSync(join(runnerTemp, 'agent-files', 'lib', 'schema.mjs'), `${'='.repeat(7)}\nstill conflicted\n`);
+      const out = bashWithEnv(bash, `
+        set -euo pipefail
+        source "$SCRIPT_PATH"
+        if agent_left_markers; then echo markers-yes; else echo markers-no; fi
+      `, { RUNNER_TEMP: runnerTemp, SCRIPT_PATH: scriptPath }).trim();
+      if (out === 'markers-yes') pass('agent_left_markers detects the seven-equals separator');
+      else fail(`separator not detected: ${JSON.stringify(out)}`);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   }
 }

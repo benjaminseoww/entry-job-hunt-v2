@@ -88,6 +88,24 @@ test("writeCvMarkdown: persists the tailored markdown to scratch, not the compan
   }
 });
 
+test("writeCvMarkdown: scratchMd is required", () => {
+  const written = writeCvMarkdown({ docxPaths: { md: "/tmp/cv.md" }, markdown: "# Jane Doe\n" });
+  assert.equal(written.ok, false);
+  assert.match(written.error, /scratchMd is required/);
+});
+
+test("renderAndMarkDocx: scratchMd is required", async () => {
+  const result = await renderAndMarkDocx({
+    spawnFn: () => { throw new Error("must not spawn"); },
+    execPath: "node",
+    root: "/tmp",
+    docxPaths: { md: "/tmp/cv.md", finalDocx: "/tmp/cv.docx" },
+    reportNum: "018",
+  });
+  assert.equal(result.kind, "render-failed");
+  assert.match(result.error, /scratchMd is required/);
+});
+
 test("spawnGenerateDocx: invokes generate-docx.mjs with --report and --companion", async () => {
   const calls = [];
   const spawnFn = (execPath, args, opts) => {
@@ -155,6 +173,10 @@ test("resolveDocxPaths: names md and docx under output/", () => {
     assert.equal(result.paths.finalDocx, join(root, "output", "cv-candidate-018-acme-2026-01-10.docx"));
     assert.equal(dirname(result.paths.scratchMd), join(root, ".career-ops-web", "pdf-tmp"));
     assert.match(result.paths.scratchMd.replaceAll("\\", "/"), /cv-web-018-[0-9a-f]{16}\.md$/);
+    const again = resolveDocxPaths("018", "2026-01-10", root, () => join(root, "reports", `018-acme-2026-01-10.md`));
+    assert.notEqual(again.paths.scratchMd, result.paths.scratchMd);
+    assert.equal(again.paths.md, result.paths.md);
+    assert.equal(again.paths.finalDocx, result.paths.finalDocx);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -256,7 +278,7 @@ function outputMarkdown(dataRoot) {
   return readdirSync(join(dataRoot, "output")).filter((f) => f.endsWith(".md")).sort();
 }
 
-test("renderAndMarkDocx e2e: real generate-docx.mjs, | Word | tracker, B1 blocked runs", { timeout: 60_000 }, async () => {
+test("renderAndMarkDocx e2e: real generate-docx.mjs, | Word | tracker, blocked fact-gate runs", { timeout: 60_000 }, async () => {
   await withDocxFixture(async ({ dataRoot, spawnFn }) => {
     const resolved = resolveDocxPaths("001", "2026-11-11", dataRoot, () => join(dataRoot, "reports", "001-acme-2026-11-11.md"));
     assert.equal(resolved.ok, true);
@@ -314,4 +336,52 @@ test("renderAndMarkDocx e2e: real generate-docx.mjs, | Word | tracker, B1 blocke
     assert.deepEqual(outputMarkdown(dataRoot), ["cv-alex-chen-001-acme-2026-11-11.md"]);
     assert.equal(readFileSync(join(dataRoot, "data", "applications.md"), "utf8"), tracker);
   });
+});
+
+test("SIGTERM removes the scratch markdown", { skip: process.platform === "win32" }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "co-docx-sigterm-"));
+  const scratchMd = join(root, "scratch.md");
+  const readyFile = join(root, "ready");
+  const md = join(root, "cv.md");
+  const script = join(root, "hang.mjs");
+  writeFileSync(script, `import { writeFileSync } from "node:fs";
+import { writeCvMarkdown } from ${JSON.stringify(join(REPO, "web/src/lib/docx-render.mjs"))};
+const written = writeCvMarkdown({ docxPaths: { md: ${JSON.stringify(md)}, scratchMd: ${JSON.stringify(scratchMd)} }, markdown: "# x\\n" });
+if (!written.ok) {
+  console.error(written.error);
+  process.exit(1);
+}
+writeFileSync(${JSON.stringify(readyFile)}, "ok");
+setInterval(() => {}, 60000);
+`);
+  const child = spawn(process.execPath, [script], {
+    stdio: ["ignore", "ignore", "pipe"],
+    detached: true,
+  });
+  let stderr = "";
+  child.stderr.on("data", (d) => { stderr += d.toString(); });
+  const killChild = (signal) => {
+    try { process.kill(child.pid, signal); } catch { /* already gone */ }
+  };
+  try {
+    const deadline = Date.now() + 5000;
+    while (!existsSync(readyFile) || !existsSync(scratchMd)) {
+      if (Date.now() > deadline) {
+        throw new Error(`timeout waiting for scratch: stderr=${JSON.stringify(stderr)}`);
+      }
+      if (child.exitCode !== null || child.signalCode) {
+        throw new Error(`child exited ${child.exitCode} ${child.signalCode} stderr=${JSON.stringify(stderr)}`);
+      }
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    killChild("SIGTERM");
+    await new Promise((resolve, reject) => {
+      child.once("close", resolve);
+      child.once("error", reject);
+    });
+    assert.equal(existsSync(scratchMd), false);
+  } finally {
+    killChild("SIGKILL");
+    rmSync(root, { recursive: true, force: true });
+  }
 });
