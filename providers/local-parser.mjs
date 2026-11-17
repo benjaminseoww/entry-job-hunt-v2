@@ -2,7 +2,7 @@
 /** @typedef {import('./_types.js').Provider} Provider */
 
 import { execFile } from 'child_process';
-import { realpathSync } from 'fs';
+import { existsSync, realpathSync, statSync } from 'fs';
 import { resolve, sep } from 'path';
 import { fileURLToPath } from 'url';
 import { promisify } from 'util';
@@ -78,13 +78,63 @@ function buildParserArgs(entry) {
   return args.map(arg => expandParserArg(arg, entry));
 }
 
-// Resolve a configured path and confirm it stays inside the project tree.
-function resolveInsideRoot(rawPath) {
-  const resolved = realpathSync(resolve(PROJECT_ROOT, String(rawPath)));
-  if (resolved !== PROJECT_ROOT && !resolved.startsWith(PROJECT_ROOT + sep)) {
+export const PARSER_SCRIPT_MISSING = 'PARSER_SCRIPT_MISSING';
+export const PARSER_SCRIPT_UNRUNNABLE = 'PARSER_SCRIPT_UNRUNNABLE';
+
+function parserScriptError(message, code) {
+  const err = new Error(message);
+  err.code = code;
+  return err;
+}
+
+function assertInsideRoot(absPath, rawPath) {
+  if (absPath !== PROJECT_ROOT && !absPath.startsWith(PROJECT_ROOT + sep)) {
     throw new Error(`local-parser: path escapes the project root: ${rawPath}`);
   }
+}
+
+// Resolve a configured path and confirm it stays inside the project tree.
+function resolveInsideRoot(rawPath) {
+  const abs = resolve(PROJECT_ROOT, String(rawPath));
+  assertInsideRoot(abs, rawPath);
+  if (!existsSync(abs)) {
+    throw parserScriptError(`local-parser: parser script not found: ${rawPath}`, PARSER_SCRIPT_MISSING);
+  }
+  let st;
+  try {
+    st = statSync(abs);
+  } catch (err) {
+    throw parserScriptError(
+      `local-parser: parser script is unrunnable: ${rawPath} (${err.code || err.message})`,
+      PARSER_SCRIPT_UNRUNNABLE,
+    );
+  }
+  if (!st.isFile()) {
+    throw parserScriptError(`local-parser: parser script is not a file: ${rawPath}`, PARSER_SCRIPT_UNRUNNABLE);
+  }
+  const resolved = realpathSync(abs);
+  assertInsideRoot(resolved, rawPath);
   return resolved;
+}
+
+function isParserScriptIssue(err) {
+  return err?.code === PARSER_SCRIPT_MISSING || err?.code === PARSER_SCRIPT_UNRUNNABLE;
+}
+
+/**
+ * Classify a portals.yml parser block without spawning it.
+ * null = not a local-parser candidate; otherwise { status, error? }.
+ */
+export function inspectParserScript(entry) {
+  if (!entry?.parser?.command) return null;
+  try {
+    resolveInvocation(entry);
+    return { status: 'ok' };
+  } catch (err) {
+    if (err?.code === PARSER_SCRIPT_MISSING) return { status: 'missing', error: err.message };
+    if (err?.code === PARSER_SCRIPT_UNRUNNABLE) return { status: 'unrunnable', error: err.message };
+    return { status: 'invalid', error: err.message };
+  }
 }
 
 // The command is either a whitelisted interpreter (resolved via PATH) or a script
@@ -236,12 +286,13 @@ async function runLocalParser(entry) {
 
   // cwd is pinned to the project root so a relative script arg resolves to the
   // same file resolveInvocation() validated, regardless of the caller's cwd.
-  const { stdout } = await execFileAsync(command, args, {
+  const { stdout, stderr } = await execFileAsync(command, args, {
     cwd: PROJECT_ROOT,
     timeout,
     maxBuffer,
     windowsHide: true,
   });
+  if (stderr?.trim()) console.error(stderr.trim());
 
   let payload;
   try {
@@ -253,6 +304,9 @@ async function runLocalParser(entry) {
   const rawJobs = Array.isArray(payload) ? payload : payload.jobs || payload.results;
   if (!Array.isArray(rawJobs)) {
     throw new Error('local parser JSON must be an array or contain jobs[]/results[]');
+  }
+  if (!Array.isArray(payload) && payload.warning) {
+    console.error(`⚠️  local parser (${entry.name || 'unnamed'}): ${payload.warning}`);
   }
 
   return rawJobs
@@ -267,16 +321,19 @@ export default {
   detect(entry) {
     if (!entry.parser?.command) return null;
 
-    // An invocation we can't safely resolve (unknown command, out-of-repo or
-    // missing script, inline-code flags) is not runnable — skip it.
+    // Security/config failures stay unclaimed. A missing or unrunnable script
+    // is still this provider's board — fetch() names the defect instead of
+    // letting scan.mjs fold it into "N skipped — no provider matched".
     try {
       resolveInvocation(entry);
-    } catch {
-      return null;
+    } catch (err) {
+      if (!isParserScriptIssue(err)) return null;
     }
 
     return { url: entry.careers_url || 'local-parser' };
   },
+
+  inspect: inspectParserScript,
 
   async fetch(entry) {
     return runLocalParser(entry);

@@ -71,7 +71,7 @@ if (enabledCount >= 80) {
   fail(`only ${enabledCount} enabled entries parsed — the template read has lost its subject`);
 }
 
-const { silent, handoff, unknownProvider } = findUnclaimedEntries(entries, providers);
+const { silent, handoff, unknownProvider, brokenParser = [] } = findUnclaimedEntries(entries, providers);
 
 // ── An explicit provider: that does not exist is always a bug ──────────────
 if (unknownProvider.length === 0) {
@@ -80,6 +80,15 @@ if (unknownProvider.length === 0) {
   fail(
     'these entries name a provider that is not loaded, so scan.mjs cannot run them: '
     + unknownProvider.map((r) => `${r.name} (${r.error})`).join(' | '),
+  );
+}
+
+if (brokenParser.length === 0) {
+  pass('no shipped template entry points at a missing or unrunnable local parser');
+} else {
+  fail(
+    'these entries configure a local parser that is missing or unrunnable: '
+    + brokenParser.map((r) => `${r.name} (${r.error})`).join(' | '),
   );
 }
 

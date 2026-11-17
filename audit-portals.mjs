@@ -61,6 +61,7 @@ import { loadYaml } from './lib/yaml-document.mjs';
 
 import { makeHttpCtx } from './providers/_http.mjs';
 import { loadProviders, resolveProvider } from './providers/_registry.mjs';
+import { inspectParserScript } from './providers/local-parser.mjs';
 import { mergeProviderPlugins } from './plugins/_engine.mjs';
 import { flagValue, hasFlag, validateFlags } from './lib/cli-flags.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
@@ -227,6 +228,24 @@ export async function auditCompanies(companies, {
     while (queue.length > 0) {
       const entry = queue.shift();
       const name = typeof entry.name === 'string' ? entry.name : '(unnamed)';
+      const parserIssue = inspectParserScript(entry);
+      if (parserIssue && (parserIssue.status === 'missing' || parserIssue.status === 'unrunnable')) {
+        const { verdict, count, detail } = classifyBoard(
+          { provider: 'local-parser', error: parserIssue.error, scanMethod: entry.scan_method || null },
+          { smallThreshold },
+        );
+        rows.push({
+          name,
+          provider: 'local-parser',
+          careers_url: typeof entry.careers_url === 'string' ? entry.careers_url : '',
+          verdict,
+          count,
+          detail,
+          samples: [],
+        });
+        continue;
+      }
+
       let resolved = null;
       if (providers && providers.size > 0) {
         resolved = resolveProvider(entry, providers, { skipIds: ['local-parser'] });
@@ -282,15 +301,18 @@ export async function auditCompanies(companies, {
  *   unknownProvider `provider:` names an id no module exports — almost always a
  *                   typo. scan.mjs does report this one loudly, but it is dead
  *                   config until someone fixes the string.
+ *   brokenParser    local-parser claims the entry, but the script is missing
+ *                   or unrunnable. scan.mjs used to skip this silently.
  *
  * @param {Array<object>} entries - tracked_companies and/or boards entries.
  * @param {Map} providers - from loadProviders().
- * @returns {{silent: Array<object>, handoff: Array<object>, unknownProvider: Array<object>}}
+ * @returns {{silent: Array<object>, handoff: Array<object>, unknownProvider: Array<object>, brokenParser: Array<object>}}
  */
 export function findUnclaimedEntries(entries, providers) {
   const silent = [];
   const handoff = [];
   const unknownProvider = [];
+  const brokenParser = [];
   for (const entry of Array.isArray(entries) ? entries : []) {
     if (!entry || typeof entry !== 'object' || entry.enabled === false) continue;
     if (typeof entry.name !== 'string' || !entry.name.trim()) continue;
@@ -300,7 +322,22 @@ export function findUnclaimedEntries(entries, providers) {
     // this function answers is "would scan.mjs claim it?", so it resolves
     // exactly the way scan.mjs does.
     const resolved = providers && providers.size > 0 ? resolveProvider(entry, providers) : null;
-    if (resolved?.provider) continue;
+    if (resolved?.provider) {
+      const inspect = resolved.provider.inspect;
+      if (typeof inspect === 'function') {
+        const issue = inspect(entry);
+        if (issue && (issue.status === 'missing' || issue.status === 'unrunnable')) {
+          brokenParser.push({
+            name: entry.name,
+            status: issue.status,
+            error: issue.error,
+            scanMethod: entry.scan_method || null,
+            careers_url: typeof entry.careers_url === 'string' ? entry.careers_url : '',
+          });
+        }
+      }
+      continue;
+    }
     const row = {
       name: entry.name,
       scanMethod: entry.scan_method || null,
@@ -311,7 +348,7 @@ export function findUnclaimedEntries(entries, providers) {
     else if (row.scanMethod) handoff.push(row);
     else silent.push(row);
   }
-  return { silent, handoff, unknownProvider };
+  return { silent, handoff, unknownProvider, brokenParser };
 }
 
 /** Read tracked_companies out of a portals file. Throws on a missing file. */
