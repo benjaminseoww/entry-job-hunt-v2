@@ -81,8 +81,7 @@ export function isCvWorkerKind(kind) {
  *
  * - pdf       reads cv.md/profile/report/template and returns the CV inline in an
  *             envelope the backend persists — no write, and no fetch.
- * - docx      same as pdf, but the envelope is tailored markdown and the
- *             backend renders Word. Local files only.
+ * - docx      same as pdf, but the envelope is markdown and the backend renders Word.
  * - research  "use WebFetch for URLs" — fetches, reports, never writes.
  * - evaluate  "Use WebFetch to read the posting", then emits the report inline.
  *             The backend persists it. The agent must not write: the posting is

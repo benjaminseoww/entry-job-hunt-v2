@@ -28,7 +28,6 @@ type ApplyCtx = {
   issues: ApplyIssue[];
   driveSteps: DriveStep[];
   error: string;
-  /** Word or PDF — from the file that will actually be attached. */
   cvFormat: "Word" | "PDF";
   open: (url: string, opts?: { prefill?: boolean; company?: string; n?: string; from?: string }) => Promise<void>;
   prefill: () => Promise<void>;

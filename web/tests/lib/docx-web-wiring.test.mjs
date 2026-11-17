@@ -1,7 +1,4 @@
-/**
- * Source pins for Cole r1 nits 3–5: Studio hidden for Word, View uses the
- * just-finished job kind, and cv-kind matches what fill attaches.
- */
+/** Pins: Studio hidden for Word, View uses the just-finished job kind, cv-kind matches fill. */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

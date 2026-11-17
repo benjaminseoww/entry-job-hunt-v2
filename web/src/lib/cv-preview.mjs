@@ -1,8 +1,3 @@
-/**
- * Containment helpers for the Word CV Garamond preview. Kept as .mjs so
- * node --test can cover ../, absolute, symlink and non-.md cases without
- * going through the Next route.
- */
 import fs from "node:fs";
 import path from "node:path";
 
@@ -17,14 +12,7 @@ export function siblingMarkdown(docxPath) {
   return String(docxPath ?? "").replace(/\.docx$/i, ".md");
 }
 
-/**
- * A readable markdown companion inside output/. Rejects non-.md files,
- * missing paths, directories, and anything whose real path escapes outputDir
- * (including a symlink planted in output/ that points outside).
- * @param {string | null | undefined} candidate
- * @param {string} outputDir
- * @returns {string | null} real path, or null
- */
+/** Reject anything whose real path is not a `.md` file inside output/, including a symlink planted there. */
 export function containedPreviewMarkdown(candidate, outputDir) {
   if (!candidate) return null;
   let resolved;

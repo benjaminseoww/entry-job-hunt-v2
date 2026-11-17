@@ -14,11 +14,8 @@
  *
  * --report records the .docx in data/pdf-index.tsv after a verified write
  * (pdf = the .docx, html = the input .md unless --companion is set, format =
- * letter, kind = cv). --companion names the markdown path the index html
- * column should keep (the web worker writes a scratch file, then promotes it
- * to this path after a successful render). Without --report no index row is
- * written. The tracker cell is left to mark-pdf-ready.mjs. US Letter only;
- * there is no --format flag.
+ * letter, kind = cv). Without --report no index row is written. The tracker
+ * cell is left to mark-pdf-ready.mjs. US Letter only; there is no --format flag.
  *
  * Writes go to a temp file in the real parent directory (random suffix, wx),
  * then renameSync onto the destination basename. rename replaces a symlink

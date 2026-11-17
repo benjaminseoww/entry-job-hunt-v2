@@ -1,10 +1,4 @@
-/**
- * docx-envelope.mjs — the docx-mode agent's output channel.
- *
- * Same contract as cv-envelope.mjs: the agent emits the tailored markdown
- * inline and the backend persists it, so the worker needs no write tool.
- * Word is US Letter only, so there is no format attribute.
- */
+/** Agent emits tailored markdown inline; the backend persists it. US Letter only — no format attribute. */
 export const OPEN_MARK = "<<cv-md";
 export const CLOSE_MARK = "<</cv-md>>";
 
@@ -17,17 +11,8 @@ const CLOSER_ALL = new RegExp(CLOSER_SRC, "gm");
 export const DOCX_ENVELOPE_INSTRUCTION =
   `Do NOT save or edit any file — the platform persists your output for you. Instead OUTPUT the finished tailored markdown inline, between two marker lines. The first line contains only the opening marker \`${OPEN_MARK}>>\` and nothing else on that line. Then the complete markdown document (the same section order as cv.md), then a final line containing only \`${CLOSE_MARK}\`. Each marker appears exactly once. Emit the WHOLE document — never abbreviate, summarize, or write "unchanged"; the platform renders exactly these bytes and nothing else.`;
 
-/**
- * @typedef {Object} DocxEnvelope
- * @property {true} ok
- * @property {string} markdown
- * @property {string[]} warnings
- */
-
-/**
- * @param {string} text
- * @returns {DocxEnvelope | {ok: false, error: string}}
- */
+/** @typedef {{ ok: true, markdown: string, warnings: string[] }} DocxEnvelope */
+/** @returns {DocxEnvelope | {ok: false, error: string}} */
 export function parseDocxEnvelope(text) {
   if (typeof text !== "string") {
     return { ok: false, error: "No agent output to read a CV envelope from." };

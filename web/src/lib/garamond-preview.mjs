@@ -1,8 +1,4 @@
-/**
- * Garamond HTML preview of a Word CV's tailored markdown.
- * Browsers cannot inline .docx; this is the readable stand-in, labelled
- * "Preview of the Word file" (PR 5.2).
- */
+/** Browsers cannot inline .docx; this HTML is the readable stand-in. */
 
 function esc(text) {
   return String(text ?? "").replace(/[&<>"]/g, (c) => (
@@ -21,11 +17,7 @@ function inline(text) {
   return out;
 }
 
-/**
- * Conservative CommonMark-ish subset matching a tailored CV: headings, lists,
- * bold, italic, links, paragraphs. Not a general markdown engine.
- * @param {string} markdown
- */
+/** CV-shaped subset (headings, lists, emphasis, links) — not a general markdown engine. */
 export function mdToGaramondHtml(markdown) {
   const lines = String(markdown ?? "").replace(/\r\n/g, "\n").split("\n");
   const html = [];
@@ -65,9 +57,6 @@ export function mdToGaramondHtml(markdown) {
   return html.join("\n");
 }
 
-/**
- * @param {{ markdown: string, downloadHref?: string, filename?: string }} opts
- */
 export function garamondPreviewHtml({ markdown, downloadHref, filename }) {
   const download = downloadHref
     ? ` · <a href="${esc(downloadHref)}">Download ${esc(filename || "the Word file")}</a>`

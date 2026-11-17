@@ -51,19 +51,6 @@ export function parsePdfManifestRows(indexText) {
   return rows;
 }
 
-/** Resolve the exact PDF path recorded for a report in pdf-index.tsv.
- *
- *  `kind` picks which artifact, "cv" (the default) or "cover". #3959 gave the
- *  manifest a kind column so a report's CV and its cover letter coexist as
- *  separate rows. Without filtering on it, whichever was rendered first wins,
- *  so a report whose cover preceded its CV resolves to the cover — and
- *  reportNumberFromCell above says why that is the failure to avoid: this path
- *  gets attached to a real application, and the wrong document attached
- *  silently is worse than none found.
- *
- *  A row with no kind is a CV. The manifest held nothing else before the column
- *  existed, so reading it as unknown would strand every pre-#3959 artifact.
- */
 /** Full index row for a report: the CV/cover file plus its html/md companion. */
 export function pdfIndexCompanionForReport(indexText, reportNumber, kind = "cv") {
   if (!Number.isInteger(reportNumber)) return { found: false, path: null, html: null };
@@ -77,6 +64,19 @@ export function pdfIndexCompanionForReport(indexText, reportNumber, kind = "cv")
   return { found: false, path: null, html: null };
 }
 
+/** Resolve the exact PDF path recorded for a report in pdf-index.tsv.
+ *
+ *  `kind` picks which artifact, "cv" (the default) or "cover". #3959 gave the
+ *  manifest a kind column so a report's CV and its cover letter coexist as
+ *  separate rows. Without filtering on it, whichever was rendered first wins,
+ *  so a report whose cover preceded its CV resolves to the cover — and
+ *  reportNumberFromCell above says why that is the failure to avoid: this path
+ *  gets attached to a real application, and the wrong document attached
+ *  silently is worse than none found.
+ *
+ *  A row with no kind is a CV. The manifest held nothing else before the column
+ *  existed, so reading it as unknown would strand every pre-#3959 artifact.
+ */
 export function pdfIndexEntryForReport(indexText, reportNumber, kind = "cv") {
   const row = pdfIndexCompanionForReport(indexText, reportNumber, kind);
   return { found: row.found, path: row.path };
