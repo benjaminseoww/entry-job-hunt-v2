@@ -7,11 +7,8 @@
  * guards *whether an ATS can parse it at all*. No LLM, no network, no writes — it
  * reads one generated CV and reports a 0-100 structural score, a letter grade,
  * and a list of concrete, fixable issues. HTML (the output of `pdf` mode, before
- * PDF rendering) runs every check. Markdown (`.md` / `.markdown` / `.txt`) runs
- * the text-level checks only and lists layout checks as n/a. Word (`.docx`)
- * runs those text-level checks on the visible document body, plus body XML
- * checks for tables, text boxes, columns, images, and hidden text; fonts
- * and charset stay n/a.
+ * PDF rendering) runs every check. Markdown scores text-level checks (layout n/a).
+ * Word scores the visible body plus body XML for tables, images, and hidden text; fonts and charset stay n/a.
  *
  * Usage:
  *   node verify-ats.mjs <generated-cv.html|md|markdown|txt|docx>
@@ -49,8 +46,7 @@ const WEIGHTS = {
   hidden: 5,       // no hidden text / keyword stuffing
 };
 
-// Checks that inspect HTML/CSS. Markdown lists all of these as n/a. Word
-// scores layout/images/hidden from XML and lists only fonts + charset as n/a.
+// Markdown lists these as n/a. Word scores layout/images/hidden from XML; fonts+charset stay n/a.
 const HTML_ONLY_CHECKS = ['layout', 'images', 'fonts', 'charset', 'hidden'];
 const DOCX_NA_CHECKS = ['fonts', 'charset'];
 const REFUSED_ATS_EXTS = new Set(['.pdf', '.doc', '.rtf']);
@@ -471,22 +467,7 @@ function gradeFor(score) {
 }
 
 /**
- * Each term must START a word: `formation` must not be found inside
- * `Information`, nor `formacion` inside `Informacion`. `\b` is ASCII-only, so
- * the boundary is "not preceded by a letter or digit" in any script. Terms
- * stay open on the right (`experien`, `competen`) and the German, Dutch and
- * Danish compounds that put the key word LAST are listed whole.
- *
- * Matched against BOTH the raw heading and its ASCII fold. The Latin terms
- * are therefore written unaccented: `competenc` catches Competences,
- * Competências and Competenze via the fold, so only genuinely different
- * words need their own alternative.
- *
- * career-ops ships evaluation modes for ar, da, de, es, fr, hi, id, it, ja,
- * ko, nl, pl, pt, ru, tr, ua, zh and zh-TW. The Skills and experience terms
- * are taken from the `| Skills |` and `| Career history |` rows of each
- * modes/<lang>/README.md rather than invented here; the education terms had
- * no such table and are the ordinary CV heading in each language.
+ * Word-start match: `formation` must not hit `Information`. `\b` is ASCII-only, so the boundary is "not preceded by a letter or digit".
  */
 const startsWord = (terms) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${terms.join('|')})`, 'u');
 const REQUIRED_SECTIONS = [
@@ -553,13 +534,6 @@ const HEADING_QUALIFIERS = new Set([
   'career', 'work', 'personal', 'academic',
 ]);
 
-/**
- * Score standard section headings. Returns 0–20 points (5 per required
- * heading found, plus up to 5 bonus) and records missing-heading issues.
- * @param {string} headingBlob
- * @param {(severity:string, message:string) => void} add
- * @returns {number}
- */
 function applySectionScore(headingBlob, add) {
   let points = 0;
   const missing = [];
@@ -576,12 +550,7 @@ function applySectionScore(headingBlob, add) {
   return points;
 }
 
-/**
- * Optional, advisory keyword coverage — never folded into the structural score.
- * @param {string} text
- * @param {{keywords?: string|string[], role?: string}} opts
- * @returns {null|{total:number,found:number,percent:number,missing:string[]}}
- */
+/** Advisory keyword coverage — never folded into the structural score. */
 function keywordCoverageFor(text, opts) {
   const keywords = normalizeKeywords(opts.keywords, opts.role);
   if (!keywords.length) return null;
@@ -760,24 +729,14 @@ function auditAts(html, opts = {}) {
 }
 
 /**
- * A Word display heading used only as a fallback when XML pPr did not flag
- * the paragraph. Known section terms match directly (so 학력 / 学歴 / 技能
- * and Title Case "Work Experience" count even without Heading styles).
- * Arbitrary all-caps lines (AWS GCP K8S SRE, TECHFIN CORP, NASA JPL) do not.
- * @param {string} line
- * @returns {boolean}
+ * Fallback when XML pPr is missing: known section terms only (학력/学歴/技能, Title Case), not all-caps acronyms.
  */
 function isWordDisplayHeading(line) {
   if (line.length > 80 || /[.!?。！？]$/u.test(line)) return false;
   return isEntirelySectionHeading(line);
 }
 
-/**
- * True when the whole line is a required or bonus section heading, not a
- * sentence that merely contains the term.
- * @param {string} line
- * @returns {boolean}
- */
+/** Whole line is a section heading, not a sentence that contains the term. */
 function isEntirelySectionHeading(line) {
   const candidates = [line.toLowerCase(), asciiFold(line).toLowerCase()];
   const strip = (s, re) => {
@@ -807,14 +766,7 @@ function foldHeadingList(headings) {
     .filter(Boolean);
 }
 
-/**
- * Section headings from markdown ATX lines. The Word section-term fallback
- * runs only when `opts.kind === 'docx'` (markdown already has ATX headings).
- * Same ASCII-fold pair extractHeadings emits, so applySectionScore is shared.
- * @param {string} text
- * @param {{kind?: 'docx'|'md'|'txt'}} [opts]
- * @returns {string[]}
- */
+/** ATX headings; for Word, also standalone section-term lines when XML pPr is missing. */
 function extractPlainHeadings(text, opts = {}) {
   const out = [];
   const allowCaps = opts.kind === 'docx';
@@ -831,7 +783,7 @@ function extractPlainHeadings(text, opts = {}) {
       out.push(heading);
       continue;
     }
-    if (allowCaps && isWordDisplayHeading(trimmed)) out.push(trimmed); // known section terms only
+    if (allowCaps && isWordDisplayHeading(trimmed)) out.push(trimmed);
   }
   return foldHeadingList(out);
 }
@@ -854,14 +806,7 @@ function awardNaChecks(score, add, checks, reason) {
 }
 
 /**
- * Score a plain-text CV (markdown / .txt) for ATS-friendliness. Text-level
- * checks only; HTML layout checks are listed as n/a and awarded in full so a
- * well-formed markdown CV is not failed for missing CSS. Word uses
- * auditAtsDocx instead.
- *
- * @param {string} text
- * @param {{keywords?: string|string[], role?: string, kind?: 'md'|'txt'}} [opts]
- * @returns {{score:number, grade:string, issues:{severity:string,message:string}[], keywordCoverage:null|{total:number,found:number,percent:number,missing:string[]}, naChecks:string[]}}
+ * Score markdown/.txt on text-level checks; HTML layout checks are n/a so a well-formed file is not failed for missing CSS.
  */
 function auditAtsPlain(text, opts = {}) {
   const kind = opts.kind === 'txt' ? 'txt' : 'md';
@@ -895,14 +840,7 @@ function auditAtsPlain(text, opts = {}) {
   return { score, grade: gradeFor(score), issues, keywordCoverage, naChecks: awarded.naChecks };
 }
 
-/**
- * Score a Word CV. Contact and headings are read from the visible document
- * body; headers/footers/notes are ignored for those checks. Layout, images,
- * and hidden text come from body XML only. Fonts and charset stay n/a.
- *
- * @param {ReturnType<typeof extractDocxParts>} parts
- * @param {{keywords?: string|string[], role?: string}} [opts]
- */
+/** Score a Word CV from visible body text; layout/hidden from body XML. Fonts and charset n/a. */
 function auditAtsDocx(parts, opts = {}) {
   const issues = [];
   const add = (severity, message) => issues.push({ severity, message });
@@ -994,13 +932,7 @@ function readDocxForAts(targetPath) {
 }
 
 /**
- * Score a generated CV file. `.docx` is unzipped through lib/docx-text.mjs;
- * `.md` / `.markdown` / `.txt` are read as UTF-8; `.pdf` / `.doc` / `.rtf`
- * are refused; everything else is HTML (the historical path).
- *
- * @param {string} targetPath
- * @param {{keywords?: string|string[], role?: string}} [opts]
- * @returns {ReturnType<typeof auditAts> | ReturnType<typeof auditAtsPlain> | ReturnType<typeof auditAtsDocx>}
+ * Score a generated CV file: .docx via XML, .md/.txt as UTF-8, .pdf/.doc/.rtf refused, else HTML.
  */
 function auditAtsFromPath(targetPath, opts = {}) {
   const ext = extname(targetPath).toLowerCase();

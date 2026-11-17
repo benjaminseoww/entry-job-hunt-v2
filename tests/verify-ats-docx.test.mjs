@@ -1,8 +1,5 @@
-// tests/verify-ats-docx.test.mjs — verify-ats.mjs scores Word and markdown
-// on text-level checks only. Layout checks that need HTML are listed as
-// n/a; the HTML path stays the historical scorer.
-//
-// Run:  node --test tests/verify-ats-docx.test.mjs
+// Word/markdown ATS scoring. Layout HTML checks are n/a.
+// Run: node --test tests/verify-ats-docx.test.mjs
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -141,10 +138,8 @@ test('markdown ATX headings and Word uppercase titles are both recognized', () =
   // All-caps acronym / employer lines are not fallback headings.
   const acronyms = extractPlainHeadings('AWS GCP K8S SRE\nTECHFIN CORP\nNASA JPL\n', { kind: 'docx' });
   assert.equal(acronyms.length, 0);
-  // Sentence-case body copy containing "experience" is not a heading.
   const body = extractPlainHeadings('Senior engineer with a decade of experience designing systems.\n', { kind: 'docx' });
   assert.equal(body.some((h) => h.includes('experience')), false);
-  // Markdown has ATX headings; all-caps body lines are not headings.
   const mdCaps = extractPlainHeadings('WORK EXPERIENCE\nStaff Engineer\nEDUCATION\nSKILLS\n', { kind: 'md' });
   assert.equal(mdCaps.some((h) => h.includes('work experience')), false);
 });
