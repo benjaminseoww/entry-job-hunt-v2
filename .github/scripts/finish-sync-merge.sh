@@ -10,6 +10,10 @@
 
 set -euo pipefail
 
+# Copilot can rewrite this file while bash is still reading it. Parse the body
+# first so a later edit cannot shift the rest of the run.
+main() {
+
 if [ "${GITHUB_ACTIONS:-}" != "true" ]; then
   echo "finish-sync-merge.sh only runs in GitHub Actions" >&2
   echo "Set GITHUB_ACTIONS=true to override (e.g. for act)." >&2
@@ -22,6 +26,11 @@ fi
 : "${RUNNER_TEMP:?}"
 : "${FORK_BRANCH:?}"
 : "${UPSTREAM_REPO:?}"
+
+# Build markers at runtime: Copilot greps for them and treated this script as a conflict.
+marker_start="$(printf '%.0s<' {1..7})"
+marker_end="$(printf '%.0s>' {1..7})"
+conflict_head="${marker_start} HEAD"
 
 # Scope the bot identity to this process. Do not write user.name / user.email
 # into git config — that persists in the repo and later local commits (including
@@ -148,11 +157,49 @@ agent_left_markers() {
   local file
   while IFS= read -r file; do
     [ -n "$file" ] || continue
-    if grep -q -E '^(<<<<<<<|>>>>>>>) ' "$RUNNER_TEMP/agent-files/$file"; then
+    if grep -q -E "^(${marker_start}|${marker_end}) " "$RUNNER_TEMP/agent-files/$file"; then
       return 0
     fi
   done < "$RUNNER_TEMP/conflicts-after.txt"
   return 1
+}
+
+worktree_matches_pre_agent() {
+  diff -qr --exclude '.git' "$RUNNER_TEMP/pre-agent" . >/dev/null || return 1
+  return 0
+}
+
+# Fail if Copilot left edits outside the conflict list after restore+overlay.
+unexpected_agent_paths() {
+  local pre="$RUNNER_TEMP/pre-agent"
+  local rel abs
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    if [ ! -f "$pre/$rel" ]; then
+      if ! grep -qxF "$rel" "$RUNNER_TEMP/conflicts-after.txt"; then
+        printf '%s\n' "$rel"
+      fi
+    fi
+  done < <(find . -path './.git' -prune -o -type f -print | sed 's|^\./||')
+  while IFS= read -r abs; do
+    rel="${abs#"$pre"/}"
+    if grep -qxF "$rel" "$RUNNER_TEMP/conflicts-after.txt"; then
+      continue
+    fi
+    if [ ! -f "$rel" ] || ! cmp -s "$pre/$rel" "$rel"; then
+      printf '%s\n' "$rel"
+    fi
+  done < <(find "$pre" -type f -print)
+}
+
+assert_only_conflicted_files_differ_from_pre_agent() {
+  local unexpected
+  unexpected="$(unexpected_agent_paths | sort -u)"
+  if [ -n "$unexpected" ]; then
+    echo "Copilot changed files that were not in the conflict list:" >&2
+    printf '%s\n' "$unexpected" >&2
+    exit 1
+  fi
 }
 
 disposition=not-run
@@ -172,8 +219,8 @@ Read and follow .github/skills/resolve-sync-conflicts/SKILL.md before you edit a
 
 You are on a sync branch started from entry-job-hunt-v2 ${FORK_BRANCH}. HEAD is that fork. The other side of each conflict is the career-ops release ${tag}. Do not commit, push, or stage. Write sync-conflict-report.md in the repository root and stop.
 
-Before any edit, run: git grep -n -e '<<<<<<< HEAD'
-A line containing <<<<<<< HEAD is a merge conflict. Write every hit (path and line) under ## Conflicts found in sync-conflict-report.md. Ignore .github/skills/resolve-sync-conflicts/SKILL.md. Do not edit a conflicted file until that list is written. Then resolve one file at a time, in that list's order, and re-run the search on the file you just edited before starting the next. For each file, remove every conflict marker and keep the functionality already on both sides. Do not leave a hunk marked because the two sides look incompatible. Do not add an optimization, refactor, rename, or any other change. Do not run the tests. This sync keeps your try. The pull request's Tests workflow reports failures, and a person fixes those. A file below that the search does not find is already clear. A hit this list omits is still a conflict: resolve it too, unless the skill says the path is user-layer.
+Before any edit, run: git grep -n -e '${conflict_head}'
+A line containing ${conflict_head} is a merge conflict. Write every hit (path and line) under ## Conflicts found in sync-conflict-report.md. Ignore .github/skills/resolve-sync-conflicts/SKILL.md and anything under .github/scripts/. Do not edit those paths even if grep lists them. Do not edit a conflicted file until that list is written. Then resolve one file at a time, in that list's order, and re-run the search on the file you just edited before starting the next. For each file, remove every conflict marker and keep the functionality already on both sides. Do not leave a hunk marked because the two sides look incompatible. Do not add an optimization, refactor, rename, or any other change. Do not run the tests. This sync keeps your try. The pull request's Tests workflow reports failures, and a person fixes those. A file below that the search does not find is already clear. A hit this list omits is still a conflict: resolve it too, unless the skill says the path is user-layer or under .github/scripts/.
 
 Conflicted files:
 $(sed 's/^/- /' "$RUNNER_TEMP/conflicts-after.txt")
@@ -198,6 +245,11 @@ EOF
   fi
   save_agent_files
   restore_pre_agent
+  if ! worktree_matches_pre_agent; then
+    echo "restore_pre_agent did not restore the pre-Copilot worktree" >&2
+    diff -qr --exclude '.git' "$RUNNER_TEMP/pre-agent" . >&2 || true
+    exit 1
+  fi
 
   if [ "$copilot_status" -ne 0 ]; then
     echo "copilot exited ${copilot_status}"
@@ -212,6 +264,7 @@ fi
 # Keep the try. The pull request's Tests workflow reports failures.
 if [ "$disposition" = kept ] || [ "$disposition" = partial ]; then
   overlay_agent_files
+  assert_only_conflicted_files_differ_from_pre_agent
 fi
 
 if [ "$disposition" = kept ]; then
@@ -225,3 +278,7 @@ fi
 
 write_notes "$disposition" "$report"
 echo "conflict disposition: $disposition"
+
+}
+
+main "$@"; exit

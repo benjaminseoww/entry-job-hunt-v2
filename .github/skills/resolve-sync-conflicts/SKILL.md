@@ -9,7 +9,7 @@ Combine a career-ops release with this fork. One try. Leave a report the sync pu
 
 ## CRITICAL
 
-- Edit only files that contain a merge conflict, plus any file the prompt lists. Do not commit, push, or `git add`.
+- Edit only files that contain a merge conflict, plus any file the prompt lists. Do not commit, push, or `git add`. Do not edit `.github/scripts/**` even if grep lists them: those hits are the sync machinery describing markers, not a merge conflict.
 - Do not edit a user-layer path (`cv.md`, `config/profile.yml`, `modes/_profile.md`, `modes/_custom.md`, `modes/_brief.md`, `voice-dna.md`, `portals.yml`, `article-digest.md`, `config/plugins.yml`, `plugins.lock`, `opencode.json`, `.claude/settings.json`, or anything under `.career-ops-web/`, `interview-prep/`, `documents/`, `data/`, `reports/`, `output/`, `jds/`, `writing-samples/`, `plugins.local/`, `.claude/hooks/`). The workflow already kept this fork's copy. If one of those files is in the prompt, stop and say so in the report. Do not blend the release into it.
 - `<<<<<<< HEAD` is entry-job-hunt-v2 `main`. The other side is the career-ops release tag. Keep both behaviors. Do not drop a fork feature to take the release, and do not drop a release change to keep the fork.
 - For each file, remove every conflict marker and keep the functionality already on the two sides. Do not add an optimization, refactor, rename, comment, helper, or any other change. A line that was not inside a conflict hunk stays as it was.
@@ -21,8 +21,8 @@ Combine a career-ops release with this fork. One try. Leave a report the sync pu
 
 ## Workflow
 
-1. **Find every conflict before editing.** Run `git grep -n -e '<<<<<<< HEAD'`. A line containing `<<<<<<< HEAD` is a merge conflict. Write every hit (path and line) into `sync-conflict-report.md` under `## Conflicts found`, then stop and do not edit a conflicted file until that list is in the file. Ignore the hit in this skill. A file the prompt names that is absent from the search is already clear. A hit the prompt omits is still a conflict.
-2. **Resolve one file at a time, in the order of that list.** Read both sides of every hunk in that file first. Keep both behaviors and remove the markers. Do not optimize or otherwise improve the file while you are there. When the file is done, run `git grep -n -e '<<<<<<< HEAD' -- that/file`. Any remaining hit means the file is not done. Do not start the next file while this one still has a hit. Do not touch a file that was not in the list and was not named by the prompt.
+1. **Find every conflict before editing.** Run `git grep -n -e '<<<<<<< HEAD'`. A line containing `<<<<<<< HEAD` is a merge conflict. Write every hit (path and line) into `sync-conflict-report.md` under `## Conflicts found`, then stop and do not edit a conflicted file until that list is in the file. Ignore hits in this skill and under `.github/scripts/`. A file the prompt names that is absent from the search is already clear. A hit the prompt omits is still a conflict, unless it is one of those ignored paths.
+2. **Resolve one file at a time, in the order of that list.** Read both sides of every hunk in that file first. Keep both behaviors and remove the markers. Do not optimize or otherwise improve the file while you are there. When the file is done, run `git grep -n -e '<<<<<<< HEAD' -- that/file`. Any remaining hit means the file is not done. Do not start the next file while this one still has a hit. Do not touch a file that was not in the list and was not named by the prompt. Skip `.github/scripts/**` even if it appeared in the list.
 3. **Finish** `sync-conflict-report.md`. Leave `## Conflicts found` at the top. Under it, one section per file from that list and per file the prompt named, in that same order. `Handled` is `yes` only when that file contains no `<<<<<<< HEAD`. `How` is one sentence.
 
 ## Output
