@@ -94,23 +94,35 @@ function assertInsideRoot(absPath, rawPath) {
 }
 
 // Resolve a configured path and confirm it stays inside the project tree.
-function resolveInsideRoot(rawPath) {
+// role=script is the parser.script path: missing/unrunnable is a loud board
+// error. role=command is parser.command as an in-repo executable: unknown
+// names stay unclaimed, matching the interpreter allowlist.
+function resolveInsideRoot(rawPath, { role = 'script' } = {}) {
   const abs = resolve(PROJECT_ROOT, String(rawPath));
   assertInsideRoot(abs, rawPath);
   if (!existsSync(abs)) {
-    throw parserScriptError(`local-parser: parser script not found: ${rawPath}`, PARSER_SCRIPT_MISSING);
+    if (role === 'script') {
+      throw parserScriptError(`local-parser: parser script not found: ${rawPath}`, PARSER_SCRIPT_MISSING);
+    }
+    throw new Error(`local-parser: path not found inside project root: ${rawPath}`);
   }
   let st;
   try {
     st = statSync(abs);
   } catch (err) {
-    throw parserScriptError(
-      `local-parser: parser script is unrunnable: ${rawPath} (${err.code || err.message})`,
-      PARSER_SCRIPT_UNRUNNABLE,
-    );
+    if (role === 'script') {
+      throw parserScriptError(
+        `local-parser: parser script is unrunnable: ${rawPath} (${err.code || err.message})`,
+        PARSER_SCRIPT_UNRUNNABLE,
+      );
+    }
+    throw err;
   }
   if (!st.isFile()) {
-    throw parserScriptError(`local-parser: parser script is not a file: ${rawPath}`, PARSER_SCRIPT_UNRUNNABLE);
+    if (role === 'script') {
+      throw parserScriptError(`local-parser: parser script is not a file: ${rawPath}`, PARSER_SCRIPT_UNRUNNABLE);
+    }
+    throw new Error(`local-parser: path is not a file: ${rawPath}`);
   }
   const resolved = realpathSync(abs);
   assertInsideRoot(resolved, rawPath);
@@ -143,7 +155,7 @@ function resolveCommand(command) {
   const value = String(command || '');
   if (!value) throw new Error('local-parser: parser.command is required');
   if (!value.includes('/') && ALLOWED_INTERPRETERS.has(value)) return value;
-  return resolveInsideRoot(value);
+  return resolveInsideRoot(value, { role: 'command' });
 }
 
 // Validate the whole invocation and return what to spawn. Throws on anything unsafe.
