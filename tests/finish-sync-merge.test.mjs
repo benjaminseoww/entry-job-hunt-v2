@@ -1,8 +1,5 @@
-// The sync-merge shell script is the file bash is executing when Copilot
-// greps the worktree for conflict markers. A literal marker in that file, or
-// bash reading the file incrementally after Copilot rewrites it, is how the
-// 2026-11-14 scheduled run died with `syntax error near unexpected token else`
-// and never pushed a branch.
+// A literal conflict marker in the running script, or bash rereading an in-place
+// rewrite, crashed the scheduled sync before it pushed a branch.
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
@@ -87,9 +84,7 @@ if (script.includes('restore_pre_agent')
 }
 
 {
-  // Prove the running script is immune to a rewrite of its own path. Bash
-  // parses main() as one unit and reads `main "$@"; exit` as one line, so
-  // overwriting $0 with a dangling else cannot shift the rest of the body.
+  // Overwrite $0 mid-run; main() already parsed the rest.
   const root = mkdtempSync(join(tmpdir(), 'co-sync-self-edit-'));
   try {
     const wrapped = join(root, 'wrapped.sh');
@@ -148,9 +143,7 @@ echo unreachable
 }
 
 {
-  // Same contract as restore_pre_agent + overlay_agent_files, without rsync:
-  // Windows CI has Git Bash but not rsync. Recreate the snapshot, drop extras,
-  // then copy back only the conflicted path.
+  // Windows CI has no rsync; simulate restore+overlay with Node copies.
   const root = mkdtempSync(join(tmpdir(), 'co-sync-overlay-'));
   try {
     const pre = join(root, 'pre-agent');

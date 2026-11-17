@@ -10,11 +10,8 @@
 
 set -euo pipefail
 
-# Parse the rest before Copilot runs. Copilot can write this path while the
-# merge is in progress; bash reads a script incrementally, so an edit of the
-# file we are executing shifts the rest of the body. main() is parsed as one
-# unit, then `main "$@"; exit` is read as one line, so a later rewrite cannot
-# change what still runs.
+# Copilot can rewrite this file while bash is still reading it. Parse the body
+# first so a later edit cannot shift the rest of the run.
 main() {
 
 if [ "${GITHUB_ACTIONS:-}" != "true" ]; then
@@ -30,8 +27,7 @@ fi
 : "${FORK_BRANCH:?}"
 : "${UPSTREAM_REPO:?}"
 
-# Never store a literal conflict-marker line in this file. Copilot greps the
-# worktree for that string and treated this script as a conflict.
+# Build markers at runtime: Copilot greps for them and treated this script as a conflict.
 marker_start="$(printf '%.0s<' {1..7})"
 marker_end="$(printf '%.0s>' {1..7})"
 conflict_head="${marker_start} HEAD"
@@ -173,9 +169,7 @@ worktree_matches_pre_agent() {
   return 0
 }
 
-# Paths Copilot changed that are not in the conflict list. restore_pre_agent
-# plus overlay_agent_files should have discarded those already; this check
-# fails the job if that contract is broken.
+# Fail if Copilot left edits outside the conflict list after restore+overlay.
 unexpected_agent_paths() {
   local pre="$RUNNER_TEMP/pre-agent"
   local rel abs
