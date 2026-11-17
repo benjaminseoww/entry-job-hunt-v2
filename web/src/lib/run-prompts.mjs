@@ -10,6 +10,7 @@
  * stays read-only.
  */
 import { CV_ENVELOPE_INSTRUCTION } from "./cv-envelope.mjs";
+import { DOCX_ENVELOPE_INSTRUCTION } from "./docx-envelope.mjs";
 import { REPORT_ENVELOPE_INSTRUCTION } from "./report-envelope.mjs";
 import { COVER_TONES } from "./cover-brief.mjs";
 import { DEFAULT_PROFILE_REF, profileNote } from "./core/profile-path.mjs";
@@ -169,6 +170,15 @@ Target: ${input}`;
 4. Emit the envelope EXACTLY ONCE. The platform writes the HTML, renders the PDF, and updates the tracker's PDF column itself, only after a confirmed successful render. Do not submit anything anywhere.
 
 After the envelope, end with EXACTLY one final line: VERDICT: {5 if the complete HTML envelope was emitted, else 1}/5 — {a one-line summary, ≤12 words}`;
+  }
+  if (kind === "docx") {
+    return `${profileLine}You are tailoring the user's ATS-optimized CV for application #${input}, headless, on their machine. Run the REAL career-ops "docx" mode's CONTENT step: follow modes/docx.md's tailoring rules exactly (do not improvise your own scoring or format). Apply its CONTENT rules — keyword injection, ordering, project selection, and its never-invent-a-skill rule. Its steps that shell out and its save/render steps are NOT performed on web runs; the platform handles output itself.
+1. Read modes/docx.md, modes/pdf.md (for the shared tailoring rules), cv.md, ${profile}, and the evaluation report at ${JSON.stringify(reportFile ?? `reports/${input}-*.md`)} (for the JD keywords + analysis).
+2. Tailor the CV per modes/docx.md: inject the JD's keywords into the summary + first bullets, reorder experience by relevance, pick the top 3–4 projects. NEVER invent skills — only reword REAL experience using the JD's vocabulary. There is no competency grid. Word is US Letter only — do not choose a page format.
+3. ${DOCX_ENVELOPE_INSTRUCTION}
+4. Emit the envelope EXACTLY ONCE. The platform writes the markdown, renders the Word file, and updates the tracker's CV column itself, only after a confirmed successful render. Do not submit anything anywhere.
+
+After the envelope, end with EXACTLY one final line: VERDICT: {5 if the complete markdown envelope was emitted, else 1}/5 — {a one-line summary, ≤12 words}`;
   }
   if (kind === "cover") {
     // modes/cover.md stops five times to ask the candidate something. Step 6's

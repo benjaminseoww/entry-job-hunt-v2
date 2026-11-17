@@ -28,6 +28,7 @@ type ApplyCtx = {
   issues: ApplyIssue[];
   driveSteps: DriveStep[];
   error: string;
+  cvFormat: "Word" | "PDF";
   open: (url: string, opts?: { prefill?: boolean; company?: string; n?: string; from?: string }) => Promise<void>;
   prefill: () => Promise<void>;
   setAnswer: (idOrLabel: string, value: string) => void;
@@ -74,6 +75,7 @@ export function ApplyProvider({ children }: { children: React.ReactNode }) {
   const [issues, setIssues] = useState<ApplyIssue[]>([]);
   const [driveSteps, setDriveSteps] = useState<DriveStep[]>([]);
   const [error, setError] = useState("");
+  const [cvFormat, setCvFormat] = useState<"Word" | "PDF">("PDF");
   const sessionId = useRef<string | null>(null);
   const companyRef = useRef<string>("");
   // Mirrors `n` for the async fetch below, same reason as companyRef: the
@@ -183,6 +185,22 @@ export function ApplyProvider({ children }: { children: React.ReactNode }) {
     setN(opts?.n ?? "");
     nRef.current = opts?.n ?? "";
     setFrom(opts?.from ?? "");
+    setCvFormat("PDF");
+    const requestCvFormat = (qs: { application?: string; company?: string; title?: string }) => {
+      const kindQs = new URLSearchParams();
+      if (qs.application) kindQs.set("application", qs.application);
+      if (qs.company) kindQs.set("company", qs.company);
+      if (qs.title) kindQs.set("title", qs.title);
+      if (![...kindQs.keys()].length) return;
+      void fetch(`/api/cv-kind?${kindQs}`)
+        .then((r) => r.json())
+        .then((d) => {
+          if (generation.current !== gen) return;
+          if (d?.format === "Word" || d?.format === "PDF") setCvFormat(d.format);
+        })
+        .catch(() => {});
+    };
+    requestCvFormat({ application: opts?.n, company: opts?.company });
     pendingPrefill.current = false;
     try {
       const r = await fetch("/api/apply/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: u, cliId: cliId() }) });
@@ -202,6 +220,7 @@ export function ApplyProvider({ children }: { children: React.ReactNode }) {
       }
       sessionId.current = d.id;
       setTitle(d.title);
+      requestCvFormat({ application: opts?.n, company: opts?.company, title: d.title });
       setShots(d.shots ?? []);
       pendingPrefill.current = !!opts?.prefill;
       if (d.needsDrive) {
@@ -415,11 +434,12 @@ export function ApplyProvider({ children }: { children: React.ReactNode }) {
     setIssues([]);
     setDriveSteps([]);
     setError("");
+    setCvFormat("PDF");
   }, []);
 
   const value = useMemo(
-    () => ({ status, url, title, company, n, from, fields, answers, meta, steps, shots, prefillLog, issues, driveSteps, error, open, prefill, setAnswer, fill, agentFill, reset }),
-    [status, url, title, company, n, from, fields, answers, meta, steps, shots, prefillLog, issues, driveSteps, error, open, prefill, setAnswer, fill, agentFill, reset],
+    () => ({ status, url, title, company, n, from, fields, answers, meta, steps, shots, prefillLog, issues, driveSteps, error, cvFormat, open, prefill, setAnswer, fill, agentFill, reset }),
+    [status, url, title, company, n, from, fields, answers, meta, steps, shots, prefillLog, issues, driveSteps, error, cvFormat, open, prefill, setAnswer, fill, agentFill, reset],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

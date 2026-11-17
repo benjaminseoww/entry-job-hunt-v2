@@ -174,6 +174,13 @@ test('resolveTailoredCv: newest match wins when multiple CVs exist for the same 
   );
 });
 
+test('resolveTailoredCv: a cv-*.docx matches the same way as a PDF', async () => {
+  await withFixture([['cv-jane-doe-acme-engineer-2026-01-01.docx']], async (outputDir) => {
+    const result = await resolveTailoredCv('Acme');
+    assert.equal(result, join(outputDir, 'cv-jane-doe-acme-engineer-2026-01-01.docx'));
+  });
+});
+
 test('resolveTailoredCv: a cover-*.pdf is never returned, even if newer than the CV', async () => {
   await withFixture(
     [

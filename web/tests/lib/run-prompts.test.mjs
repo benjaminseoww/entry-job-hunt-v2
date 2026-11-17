@@ -11,6 +11,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildPrompt, isShellSafeCompanyName } from "../../src/lib/run-prompts.mjs";
 import { OPEN_MARK, CLOSE_MARK } from "../../src/lib/cv-envelope.mjs";
+import { OPEN_MARK as DOCX_OPEN, CLOSE_MARK as DOCX_CLOSE } from "../../src/lib/docx-envelope.mjs";
 import { OPEN_MARK as REPORT_OPEN, CLOSE_MARK as REPORT_CLOSE } from "../../src/lib/report-envelope.mjs";
 import { grantsWriteCapability, toolScopeFor } from "../../src/lib/claude-invocation.mjs";
 
@@ -72,6 +73,15 @@ test("buildPrompt: the pdf prompt offers both page formats", () => {
   assert.match(prompt, /letter for a US\/Canada company, otherwise a4/i);
 });
 
+test("buildPrompt: the docx prompt asks for the markdown envelope and forbids saving", () => {
+  const prompt = buildPrompt({ kind: "docx", ...ARGS });
+  assert.ok(prompt.includes(DOCX_OPEN), "docx prompt must name the opening marker");
+  assert.ok(prompt.includes(DOCX_CLOSE), "docx prompt must name the closing marker");
+  assert.match(prompt, /Do NOT save or edit any file/i);
+  assert.match(prompt, /modes\/docx\.md/);
+  assert.ok(!/write the HTML to/i.test(prompt));
+});
+
 test("buildPrompt: the pdf prompt still pins tailoring to the real mode", () => {
   // Given a pdf run — the web orchestrates the engine, it does not reimplement it
   const prompt = buildPrompt({ kind: "pdf", ...ARGS });
@@ -83,7 +93,7 @@ test("buildPrompt: the pdf prompt still pins tailoring to the real mode", () => 
 
 test("buildPrompt: every kind ends with exactly one VERDICT instruction", () => {
   // Given each kind — job-store.tsx parses that final line client-side
-  for (const kind of ["pdf", "research", "evaluate", "fix-portal", "cover"]) {
+  for (const kind of ["pdf", "docx", "research", "evaluate", "fix-portal", "cover"]) {
     const prompt = buildPrompt({ kind, ...ARGS, ...(kind === "cover" ? COVER_ARGS : {}) });
 
     // Then the contract is present exactly once, so the parse cannot pick a
@@ -126,6 +136,7 @@ test("buildPrompt: every kind carries a DIRECT no-submission clause", () => {
     research: /never submit, send, or click Apply/i,
     "fix-portal": /do not submit, send, or click Apply/i,
     cover: /never submit, send, or attach it anywhere/i,
+    docx: /Do not submit anything anywhere/i,
   };
   for (const [kind, pattern] of Object.entries(clauses)) {
     assert.match(buildPrompt({ kind, ...ARGS, ...(kind === "cover" ? COVER_ARGS : {}) }), pattern, `${kind} must carry a direct no-submission clause`);

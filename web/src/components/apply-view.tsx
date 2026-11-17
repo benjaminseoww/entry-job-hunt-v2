@@ -6,6 +6,7 @@ import type { ApplyIssue, DriveStep } from "@/lib/apply/issue";
 import { useApply } from "@/components/apply/apply-provider";
 import { needsLeaveConfirmation, resolveReturnPath } from "@/lib/apply/exit.mjs";
 import { isResumeLabel } from "@/lib/apply/resume-label.mjs";
+import { tailoredCvAttachCopy } from "@/lib/cv-format.mjs";
 import type { ApplyField } from "@/lib/apply/extract";
 import { cn } from "@/lib/cn";
 import { Fragment, useEffect, useId, useRef, useState } from "react";
@@ -545,6 +546,7 @@ function FieldRow({
   drafting: boolean;
   onChange: (v: string) => void;
 }) {
+  const a = useApply();
   const controlId = useId();
   const confirmationId = `${controlId}-confirmation`;
   // Announce the employer's requirement without imposing native validation on
@@ -608,7 +610,7 @@ function FieldRow({
       ) : f.type === "file" ? (
         isResumeLabel(f.label) ? (
           <div className="flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400">
-            <FileCheck2 className="size-4 shrink-0" /> Your tailored CV (PDF) will be attached automatically — you can swap it on the real form.
+            <FileCheck2 className="size-4 shrink-0" /> {tailoredCvAttachCopy(a.cvFormat === "Word" ? "cv.docx" : "cv.pdf")}
           </div>
         ) : (
           <div className="flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-sm text-muted">

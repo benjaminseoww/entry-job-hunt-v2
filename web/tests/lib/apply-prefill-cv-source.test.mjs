@@ -56,7 +56,7 @@ const loaderSrc = [
 ].join("\n");
 register("data:text/javascript," + encodeURIComponent(loaderSrc), pathToFileURL(WEB_SRC + "/"));
 
-const { resolveTailoredCv, resolveSessionCv } = await import("../../src/lib/apply/cv.ts");
+const { resolveTailoredCv, resolveSessionCv, companyFromTitle } = await import("../../src/lib/apply/cv.ts");
 const { buildAnswerPrompt } = await import("../../src/lib/apply/answer-prompt.mjs");
 const { applyCvSource } = await import("../../src/lib/apply/cv-source.mjs");
 
@@ -178,6 +178,13 @@ test("a cover letter that took over the report number never becomes the CV sourc
     },
     { coverRow: true },
   );
+});
+
+test("companyFromTitle reads @ Company and Role at Company without a regex on the raw title", () => {
+  assert.equal(companyFromTitle("Staff Engineer @ Acme Corp"), "Acme Corp");
+  assert.equal(companyFromTitle("Role at Globex"), "Globex");
+  assert.equal(companyFromTitle(""), "");
+  assert.equal(companyFromTitle("Engineer"), "");
 });
 
 test("resolveSessionCv falls back to the company in the page title", async () => {

@@ -51,6 +51,8 @@ export function ReportView({
   report,
   canDelete = false,
   pdfReadyFromIndex = false,
+  cvOutputFormat = "pdf",
+  cvIsWord = false,
   coverReady = false,
   backHref = "/pipeline",
   applyHref,
@@ -64,6 +66,8 @@ export function ReportView({
   file?: string | null;
   canDelete?: boolean;
   pdfReadyFromIndex?: boolean;
+  cvOutputFormat?: "pdf" | "docx";
+  cvIsWord?: boolean;
   /** A tailored cover letter for THIS application exists in output/ (resolved by
    *  the page, see resolveTailoredCover). The page drafts letters through the
    *  cover run but does not render them, so this link only finds CLI PDFs. */
@@ -79,6 +83,7 @@ export function ReportView({
   const archetype = field("Archetype");
   const url = field("URL");
   const decision = field("Decision");
+  const cv = field("CV");
   const line = applyLineLabel(score ?? "", meta?.legitimacy);
   const recommended = line === "Recommended";
   const quietApply = applyCtaQuiet({ score, legitimacy: meta?.legitimacy });
@@ -108,7 +113,13 @@ export function ReportView({
 
         <div className="mt-4 flex flex-wrap items-center gap-2.5">
           {app && <StatusSelect n={id} current={app.status} />}
-          <GeneratePdfButton n={id} company={app?.company ?? meta?.title ?? id} pdfReady={pdfReady} />
+          <GeneratePdfButton
+            n={id}
+            company={app?.company ?? meta?.title ?? id}
+            pdfReady={pdfReady}
+            outputFormat={cvOutputFormat}
+            cvIsWord={cvIsWord}
+          />
           {app && report && <CoverDraftButton n={id} company={companyName} />}
           {applyHref && (
             <Link
@@ -137,10 +148,11 @@ export function ReportView({
           </div>
         )}
 
-        {(archetype || date || applyUrl) && (
+        {(archetype || date || applyUrl || cv) && (
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
             {archetype && <span className="max-w-full truncate">{archetype}</span>}
             {date && <span className="tabular-nums text-faint">{date}</span>}
+            {cv && <span className="max-w-full truncate" title={cv}>CV: {cv}</span>}
             {applyUrl && (
               <a
                 href={applyUrl}

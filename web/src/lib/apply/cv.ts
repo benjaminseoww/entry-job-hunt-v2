@@ -28,7 +28,10 @@ export async function resolveTailoredCv(company?: string, applicationNumber?: st
   const dir = path.join(root, "output");
   let files: string[];
   try {
-    files = fs.readdirSync(dir).filter((f) => f.toLowerCase().endsWith(".pdf"));
+    files = fs.readdirSync(dir).filter((f) => {
+      const lower = f.toLowerCase();
+      return lower.endsWith(".pdf") || lower.endsWith(".docx");
+    });
   } catch {
     return null;
   }
@@ -77,11 +80,28 @@ export async function resolveSessionCv(opts: { company?: string; application?: s
  * context) rather than from a report's Apply button.
  */
 export function companyFromTitle(title?: string): string {
-  const t = (title ?? "").trim();
+  const t = (title ?? "").trim().slice(0, 300);
   if (!t) return "";
-  const at = t.match(/@\s*([^|@]+?)\s*$/);
-  if (at) return at[1].trim();
-  const atWord = t.match(/\bat\s+([A-Z][\w&.\- ]+?)\s*$/);
-  if (atWord) return atWord[1].trim();
+  const at = t.lastIndexOf("@");
+  if (at !== -1) {
+    const rest = t.slice(at + 1).trim();
+    if (rest && !rest.includes("|") && !rest.includes("@")) return rest;
+  }
+  const marker = " at ";
+  const atWord = t.toLowerCase().lastIndexOf(marker);
+  if (atWord !== -1) {
+    const rest = t.slice(atWord + marker.length).trim();
+    if (rest && rest[0] >= "A" && rest[0] <= "Z") {
+      let ok = true;
+      for (let i = 1; i < rest.length; i++) {
+        const c = rest[i];
+        if (c !== " " && c !== "&" && c !== "." && c !== "-" && !/[\w]/.test(c)) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) return rest;
+    }
+  }
   return "";
 }
