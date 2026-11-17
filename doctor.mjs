@@ -914,8 +914,7 @@ function checkPrereq(prereq) {
 }
 
 function checkFonts() {
-  // Word (.docx) output names Garamond in the template and does not use fonts/.
-  // This check is for the HTML/PDF path only.
+  // PDF/HTML fonts only; Word (.docx) names Garamond and does not use fonts/.
   const fontsDir = join(__dirname, 'fonts');
   if (!existsSync(fontsDir)) {
     return {

@@ -1,8 +1,3 @@
-// tests/docx-modes-wording.test.mjs — PR 4: format-neutral CV wording, D5
-// translated pipeline.md summary headers, and output_format: docx docs.
-//
-// Run:  node --test tests/docx-modes-wording.test.mjs
-
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -13,9 +8,7 @@ import { validateProfile } from '../validate-profile.mjs';
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const read = (rel) => readFileSync(join(ROOT, rel), 'utf8');
 
-// Languages this PR translated, plus English. Do not discover every
-// modes/<lang>/pipeline.md — upstream can add e.g. modes/nb whose header
-// still says PDF, and that must not fail this fork's tests.
+// Pin these files; don't glob all modes/*/pipeline.md — a new lang (e.g. nb) may still say PDF.
 const D5_PIPELINE_HEADERS = [
   'modes/pipeline.md',
   'modes/ar/pipeline.md',

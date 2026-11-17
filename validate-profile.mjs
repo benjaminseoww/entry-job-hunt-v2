@@ -28,10 +28,7 @@
  * explicitly below, each naming its reader — a hardcoded list can only ever
  * chase reality, and that list is short and auditable.
  *
- * Nested values such as cv.output_format are documented as quoted strings on
- * the example's output_format line ("html", "latex", "text", "docx"). A value
- * outside that set is a warn-level finding with a did-you-mean; it is not an
- * error, and modes still route unknown values to pdf.md.
+ * Unknown cv.output_format values warn with a did-you-mean; modes still route them to pdf.md.
  *
  * Usage:
  *   node validate-profile.mjs [--profile <path>] [--json] [--self-test]
@@ -86,10 +83,7 @@ export function knownKeysFromExample(exampleText) {
   return [...new Set([...Object.keys(doc), ...commented])];
 }
 
-/**
- * Quoted cv.output_format values on the example's `output_format:` line.
- * The parity test parses the same way; keep the two in lockstep.
- */
+/** Quoted `output_format` values from the example; keep in lockstep with the parity test. */
 export function declaredOutputFormats(exampleText) {
   const line = String(exampleText ?? '')
     .split(/\r?\n/)
