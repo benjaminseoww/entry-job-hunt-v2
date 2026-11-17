@@ -60,11 +60,12 @@ type PipelineGeneratePDFMsg struct {
 	Format        string
 }
 
-// PipelinePDFGeneratedMsg reports the outcome of a regeneration. On success
-// Err is empty and Path holds the absolute path of the (already opened) PDF.
+// PipelinePDFGeneratedMsg is a regeneration outcome. Note is appended on
+// success (generate-docx can exit 0 after an index failure).
 type PipelinePDFGeneratedMsg struct {
 	Err  string
 	Path string
+	Note string
 }
 
 // PipelineLoadReportMsg requests lazy loading of a report summary.
@@ -512,9 +513,12 @@ func (m PipelineModel) Update(msg tea.Msg) (PipelineModel, tea.Cmd) {
 		return m, nil
 	case PipelinePDFGeneratedMsg:
 		if msg.Err != "" {
-			m.flash = "PDF regeneration failed: " + msg.Err
+			m.flash = "CV regeneration failed: " + msg.Err
 		} else {
-			m.flash = "PDF regenerated and opened: " + filepath.Base(msg.Path)
+			m.flash = "CV regenerated and opened: " + filepath.Base(msg.Path)
+			if msg.Note != "" {
+				m.flash += " (" + msg.Note + ")"
+			}
 		}
 		return m, nil
 	case PipelineOpenFailedMsg:
@@ -672,7 +676,7 @@ func (m PipelineModel) handleKey(msg tea.KeyMsg) (PipelineModel, tea.Cmd) {
 			manifest := data.LoadPDFManifest(m.careerOpsPath)
 			candidates := data.ResolvePDFs(data.PDFWorkspaceRoot(m.careerOpsPath), app, manifest)
 			if len(candidates) == 0 {
-				m.flash = "No CV PDF found for this application — generate one with /career-ops pdf"
+				m.flash = "No CV found for this application — generate one with /career-ops pdf or /career-ops docx"
 			} else {
 				return m, m.openPDFCmd(candidates[0]) // newest first
 			}
@@ -683,11 +687,11 @@ func (m PipelineModel) handleKey(msg tea.KeyMsg) (PipelineModel, tea.Cmd) {
 			workspaceRoot := data.PDFWorkspaceRoot(m.careerOpsPath)
 			manifest := data.LoadPDFManifest(m.careerOpsPath)
 			entry, found := manifest.Lookup(app)
+			candidates := data.ResolvePDFs(workspaceRoot, app, manifest)
 			// Manifest lookup requires a report number; fall back to PDF-path
 			// index when the manifest was written without --report (common case).
 			if !found || entry.HTMLPath == "" {
 				byPath := data.LoadPDFEntriesByPath(m.careerOpsPath)
-				candidates := data.ResolvePDFs(workspaceRoot, app, manifest)
 				for _, c := range candidates {
 					if e, ok := byPath[c]; ok && e.HTMLPath != "" {
 						entry = e
@@ -696,7 +700,15 @@ func (m PipelineModel) handleKey(msg tea.KeyMsg) (PipelineModel, tea.Cmd) {
 					}
 				}
 			}
-			if !found || entry.HTMLPath == "" {
+			if !found {
+				if len(candidates) > 0 && data.WordCV(candidates[0], "") {
+					m.flash = "No index row for this Word CV — regenerate it with /career-ops docx (unindexed files are left alone)"
+				} else {
+					m.flash = "No source HTML found for this application — run /career-ops pdf first"
+				}
+				return m, nil
+			}
+			if entry.HTMLPath == "" {
 				if data.WordCV(entry.PDFPath, entry.HTMLPath) {
 					m.flash = "No source markdown found for this application — run /career-ops docx first"
 				} else {

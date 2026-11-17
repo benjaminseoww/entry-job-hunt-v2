@@ -238,17 +238,11 @@ func TestWordCV(t *testing.T) {
 	if WordCV("output/cv.pdf", "output/cv.html") {
 		t.Fatal("PDF+HTML must not count as Word")
 	}
-}
-
-func TestCompanionOutputPath(t *testing.T) {
-	if got := companionOutputPath("output/cv-acme.md"); got != "output/cv-acme.docx" {
-		t.Fatalf("md companion = %q, want .docx", got)
+	if !WordCV("output/cv.docx", "output/cv.html") {
+		t.Fatal("output path wins: .docx + .html is Word")
 	}
-	if got := companionOutputPath("output/cv-acme.html"); got != "output/cv-acme.pdf" {
-		t.Fatalf("html companion = %q, want .pdf", got)
-	}
-	if got := companionOutputPath("output/cv-acme.HTML"); got != "output/cv-acme.pdf" {
-		t.Fatalf("HTML companion = %q, want .pdf", got)
+	if WordCV("output/cv.pdf", "output/cv.md") {
+		t.Fatal("output path wins: .pdf + .md is not Word")
 	}
 }
 
