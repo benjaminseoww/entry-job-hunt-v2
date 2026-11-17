@@ -10,12 +10,12 @@
    b. **İlan içeriğini çek:** Playwright (browser_navigate + browser_snapshot) → WebFetch → WebSearch. **Playwright kullanılmadıysa** (toplu/headless mod veya yedek yola düşüldüyse) rapor başlığına `**Doğrulama:** doğrulanmamış (toplu mod)` etiketini ekle.
    c. URL erişilemiyorsa → `- [!]` olarak işaretle, not ekle ve bir sonrakine geç
    d. **Tam pipeline'ı çalıştır:** A-G değerlendirmesi → Rapor (.md) → PDF (puan ≥ 3,0 ise) → Takipçi
-   e. **"Bekleyenler"den "İşlenenler"e taşı:** `- [x] #NNN | URL | Şirket | Rol | Puan/5 | PDF ✅/❌`
+   e. **"Bekleyenler"den "İşlenenler"e taşı:** `- [x] #NNN | URL | Şirket | Rol | Puan/5 | PDF ✅/❌` veya `.docx` ise `Word ✅/❌`
 3. **3 veya daha fazla URL varsa ve Playwright kullanılmıyorsa** paralel ajan başlat (Agent aracı, `run_in_background`) — hızı artırır. Playwright etkinse tek tarayıcı örneği paylaşıldığından sıralı işle.
 4. **Tamamlanınca** özet tabloyu göster:
 
 ```text
-| # | Şirket | Rol | Puan | PDF | Önerilen eylem |
+| # | Şirket | Rol | Puan | CV | Önerilen eylem |
 ```
 
 ## pipeline.md Formatı

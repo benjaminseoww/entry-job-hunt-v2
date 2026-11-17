@@ -16,7 +16,7 @@ table in `AGENTS.md` (mirrored in `CLAUDE.md`).
 |---|---|---|
 | `oferta.md` | `oferta` | Full A-G evaluation of a single offer |
 | `ofertas.md` | `ofertas` | Multi-job comparison |
-| `auto-pipeline.md` | (paste a JD/URL) | Full automatic pipeline (evaluate + PDF + tracker) on a pasted JD/URL |
+| `auto-pipeline.md` | (paste a JD/URL) | Full automatic pipeline (evaluate + CV + tracker) on a pasted JD/URL |
 | `pipeline.md` | `pipeline` | Process the URL inbox (`data/pipeline.md`) |
 | `scan.md` | `scan` | Portal scanner (job discovery) |
 | `discover.md` | `discover` | Resolve company names to scannable ATS boards for `portals.yml` |
@@ -74,7 +74,7 @@ and never touched by `update-system.mjs` (see
 | Dir | Contents |
 |---|---|
 | `interview/` | Reusable interview skills: prep planner, practice interviewer, post-interview debrief (see [interview/README.md](interview/README.md)) |
-| `heuristics/` | Shared candidate-facing writing heuristics loaded by other modes — `recruiter-side.md` governs PDF summaries, bullets, cover letters, form answers, and outreach |
+| `heuristics/` | Shared candidate-facing writing heuristics loaded by other modes — `recruiter-side.md` governs CV summaries, bullets, cover letters, form answers, and outreach |
 | `oferta-signals/` | Block G posting-legitimacy signal checks that `oferta.md` reads on demand, not routable modes |
 | `pdf/` | Opt-in passes inside the `pdf` flow, not routable modes — `hm-audit.md` is the hiring-manager read of a tailored CV, run between the fact gate and PDF render when `--hm-audit` is passed |
 | `regional/` | Market calibration modes — `eu-swe.md` (routed as `eu-swe`) calibrates applications for European SWE roles (advisory only) |

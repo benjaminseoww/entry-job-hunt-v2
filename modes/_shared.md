@@ -242,7 +242,7 @@ After detecting archetype, read `modes/_profile.md` for the user's specific fram
 3. Submit applications on behalf of the candidate
 4. Share phone number in generated messages
 5. Recommend comp below market rate
-6. Generate a PDF without reading the JD first
+6. Generate a tailored CV without reading the JD first
 7. Use corporate-speak
 8. Ignore the tracker (every evaluated offer gets registered)
 9. Spawn nested subagents, or hand company/role/comp research to an open-ended research skill — research is bounded and inline (see Tools → Subagent delegation)
@@ -259,7 +259,7 @@ After detecting archetype, read `modes/_profile.md` for the user's specific fram
 6. Write human-facing content in `{language.output}` from `config/profile.yml` (EN when unset), whatever the language of the JD. Keep this market's terms and explain them in that language when needed
 7. Be direct and actionable -- no fluff
 8. Native tech English for generated text. Short sentences, action verbs, no passive voice.
-8b. Case study URLs in PDF Professional Summary (recruiter may only read this).
+8b. Case study URLs in the CV Professional Summary (recruiter may only read this).
 9. **Tracker additions as TSV** -- NEVER edit applications.md directly. Write TSV in `{DATA_ROOT}/batch/tracker-additions/`: a header row of column labels, then one data row (see AGENTS.md, "TSV Format for Tracker Additions"). The header is what lets `merge-tracker.mjs` resolve fields by name instead of guessing which column is score and which is status.
 10. **Include `**URL:**` in every report header.**
 
@@ -271,10 +271,10 @@ After detecting archetype, read `modes/_profile.md` for the user's specific fram
 | WebFetch | Fallback for extracting JDs from static pages |
 | Playwright | Verify offers (browser_navigate + browser_snapshot). **NEVER let 2+ agents drive the same Playwright/MCP browser session concurrently.** This is a per-session rule, not a per-agent-count one: agents each holding their own isolated browser session are fine in parallel; agents sharing one interactive MCP browser session are not — they race for control and can silently read or act on each other's page state. |
 | Read | cv.md, _profile.md, article-digest.md, cv-template.html |
-| Write | Temporary HTML for PDF, reports .md, tracker-addition TSVs in `{DATA_ROOT}/batch/tracker-additions/` (never `applications.md` directly) |
+| Write | Temporary HTML for the tailored CV (PDF path), reports .md, tracker-addition TSVs in `{DATA_ROOT}/batch/tracker-additions/` (never `applications.md` directly) |
 | Edit | Fixes to reports and other generated content. Never the tracker table: new rows go in as a TSV merged by `node merge-tracker.mjs`, status and notes changes go through `node set-status.mjs` |
 | Canva MCP | Optional visual CV generation. Duplicate base design, edit text, export PDF. Requires `cv.canva_resume_design_id` in profile.yml. |
-| Bash | `node generate-pdf.mjs`, `node merge-tracker.mjs`, `node set-status.mjs` |
+| Bash | `node generate-pdf.mjs`, `node generate-docx.mjs`, `node merge-tracker.mjs`, `node set-status.mjs` |
 
 ### Subagent delegation (cost guardrail)
 

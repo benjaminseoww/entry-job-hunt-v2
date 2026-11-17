@@ -51,7 +51,7 @@ Also show statistics:
 - Total applications
 - Breakdown by state
 - Average score
-- % with PDF generated
+- % with CV generated
 - % with report generated
 - If `data/salary-observations.tsv` has confirmed `actual` observations, include the output of `node salary-gap.mjs --summary` (advertised→actual gaps, desired attainment)
 - If the tracker has Applied-or-beyond rows, include the output of `node funnel-velocity.mjs --summary` (funnel rates vs market benchmarks, in-flight waits, stage velocity once `data/status-log.tsv` has data). Keep its honesty framing intact: the selection-bias note on above-range rates, censored counts next to medians, and no multiplier claims the script itself didn't print

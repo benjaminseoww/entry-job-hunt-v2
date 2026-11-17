@@ -48,6 +48,20 @@ test('the real shipped example validates clean against itself', () => {
   assert.deepEqual(validateProfile(EXAMPLE, EXAMPLE).findings, []);
 });
 
+test('an unknown cv.output_format is a warn with did-you-mean', () => {
+  const { findings } = validateProfile('cv:\n  output_format: doxc\n', EXAMPLE);
+  const warning = findings.find((f) => f.code === 'unknown-output-format');
+  assert.ok(warning, 'doxc should warn');
+  assert.equal(warning.level, 'warn');
+  assert.equal(warning.suggestion, 'docx');
+  assert.match(warning.message, /did you mean "docx"/);
+});
+
+test('declared cv.output_format docx is accepted', () => {
+  const { findings } = validateProfile('cv:\n  output_format: docx\n', EXAMPLE);
+  assert.ok(!findings.some((f) => f.code === 'unknown-output-format'));
+});
+
 test('keys the code reads but the example omits are not called unknown', () => {
   // rejection_latency and table_freshness have real readers. Warning on them
   // would flag a correct profile — the failure mode that makes a validator

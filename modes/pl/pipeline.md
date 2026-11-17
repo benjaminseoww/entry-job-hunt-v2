@@ -15,7 +15,7 @@ Przetwarza URL-e ofert nagromadzone w `data/pipeline.md`. Kandydat dodaje URL-e,
 4. **Na końcu** wyświetl tabelę podsumowującą:
 
 ```
-| # | Firma | Rola | Score | PDF | Rekomendowana akcja |
+| # | Firma | Rola | Score | CV | Rekomendowana akcja |
 ```
 
 ## Format pipeline.md

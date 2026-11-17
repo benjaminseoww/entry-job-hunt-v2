@@ -156,6 +156,8 @@ Every community plugin in the registry is reviewed and pinned to an exact commit
 | [career-ops-plugin-commute](https://github.com/bullitt186/career-ops-plugin-commute) | Drive time from home to each posting's workplace for evaluation and triage; home stays coordinates, routing runs on your own OSRM/Valhalla | ingest, search | None | @bullitt186 |
 | [career-ops-plugin-workspace-mcp](https://github.com/theridgerugby/career-ops-plugin-workspace-mcp) | Read-only MCP access to application rows with scores and the absolute paths and byte sizes of reports, CVs and cover letters. | export | None | @theridgerugby |
 
+The `career-ops-plugin-docx` export plugin is separate from this fork's built-in Word CV path (`modes/docx.md` / `generate-docx.mjs`), which renders a tailored CV in the Garamond layout. Enabling the plugin does not replace `/career-ops docx`.
+
 To add your own plugin to the registry, follow the [Publishing + getting approved](#publishing--getting-approved) flow above.
 
 ## Not a plugin

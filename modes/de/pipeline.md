@@ -15,7 +15,7 @@ Verarbeitet URLs von Stellenanzeigen, die in `data/pipeline.md` gesammelt wurden
 4. **Am Ende** eine Zusammenfassungstabelle ausgeben:
 
 ```
-| # | Firma | Rolle | Score | PDF | Empfohlene Aktion |
+| # | Firma | Rolle | Score | CV | Empfohlene Aktion |
 ```
 
 ## Format von pipeline.md

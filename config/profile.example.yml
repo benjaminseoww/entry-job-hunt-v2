@@ -173,7 +173,8 @@ spend_tier: standard
 # (Optional) Paper size for every generated PDF: "letter", "a4" or "auto".
 # One setting for the CV, the cover letter and the HTML body width, so they
 # cannot disagree. Absent means letter. An explicit --format flag or a payload
-# page_format still wins for a single render.
+# page_format still wins for a single render. Word (docx) output is US Letter
+# only and ignores page_format.
 # "auto" picks the sheet from the employer's country (payload `country`, or
 # --country on the renderers): Letter where Unicode CLDR lists it as the
 # primary size, A4 everywhere else, letter when the country is unknown.
@@ -197,7 +198,7 @@ spend_tier: standard
 #                                         # "auto" lets projects split. Unset: the template's own default
 
 cv:
-  output_format: "html" # "html" (default), "latex", or "text" (tailored markdown, no PDF)
+  output_format: "html" # "html" (default), "latex", "text" (tailored markdown, no PDF), or "docx" (Word)
   # (Optional) Canva resume design ID for visual CV generation via /career-ops pdf.
   # Find it in your Canva design URL: https://www.canva.com/design/DAxxxxxxx/...
   # The ID starts with "D" and is 11 characters long.
@@ -226,8 +227,9 @@ cv:
   # certifications, awards, skills. An unrecognized name is reported and ignored.
   #
   # Applies to the HTML output only. With output_format: latex the order comes
-  # from templates/cv-template.tex, and with output_format: text it comes from
-  # cv.md; this setting does nothing in either case.
+  # from templates/cv-template.tex, with output_format: text it comes from
+  # cv.md, and with output_format: docx it comes from the tailored markdown;
+  # this setting does nothing in those cases.
   #
   # This exists so the order can live in your profile instead of in
   # templates/cv-template.html, which update-system.mjs restores on every update.

@@ -28,6 +28,8 @@
  * explicitly below, each naming its reader — a hardcoded list can only ever
  * chase reality, and that list is short and auditable.
  *
+ * Unknown cv.output_format values warn with a did-you-mean; modes still route them to pdf.md.
+ *
  * Usage:
  *   node validate-profile.mjs [--profile <path>] [--json] [--self-test]
  *
@@ -79,6 +81,14 @@ export function knownKeysFromExample(exampleText) {
   if (typeof doc !== 'object' || Array.isArray(doc)) return [];
   const commented = [...text.matchAll(/^# ([a-z][a-z0-9_]*):(?=\s|$)/gm)].map((m) => m[1]);
   return [...new Set([...Object.keys(doc), ...commented])];
+}
+
+/** Quoted `output_format` values from the example; keep in lockstep with the parity test. */
+export function declaredOutputFormats(exampleText) {
+  const line = String(exampleText ?? '')
+    .split(/\r?\n/)
+    .find((row) => /^\s*output_format\s*:/.test(row)) ?? '';
+  return [...new Set([...line.matchAll(/"([a-z]+)"/g)].map((m) => m[1]))];
 }
 
 /**
@@ -173,6 +183,27 @@ export function validateProfile(profileText, exampleText) {
     }
   }
 
+  const declaredFormats = declaredOutputFormats(exampleText);
+  const cv = parsed.cv;
+  const formatValue = cv && typeof cv === 'object' && !Array.isArray(cv)
+    ? cv.output_format
+    : undefined;
+  if (declaredFormats.length > 0 && formatValue != null && formatValue !== '') {
+    const value = String(formatValue);
+    if (!declaredFormats.includes(value)) {
+      const suggestion = nearestKey(value, declaredFormats);
+      findings.push({
+        level: 'warn',
+        code: 'unknown-output-format',
+        key: 'cv.output_format',
+        suggestion,
+        message: suggestion
+          ? `Unknown cv.output_format "${value}" — did you mean "${suggestion}"? Modes route unknown values to pdf.md.`
+          : `Unknown cv.output_format "${value}". Modes route unknown values to pdf.md.`,
+      });
+    }
+  }
+
   return { parsed, findings };
 }
 
@@ -210,6 +241,13 @@ function runSelfTest() {
   check(validateProfile('page_format: a4\nstyle:\n  accent_color: "#000"\n', COMMENTED).findings.length === 0, 'a key the example ships commented out is known');
   check(knownKeysFromExample(COMMENTED).join() === 'candidate,language,spend_tier,cv,page_format,style', 'prose and nested commented keys are not top-level keys');
   check(validateProfile('styel:\n  x: 1\n', COMMENTED).findings[0]?.suggestion === 'style', 'a typo of a commented key gets its suggestion');
+
+  const FORMATS = 'candidate:\n  full_name: x\ncv:\n  output_format: "html" # "html", "latex", "text", or "docx"\n';
+  check(validateProfile('cv:\n  output_format: docx\n', FORMATS).findings.length === 0, 'declared output_format docx is accepted');
+  const typoFmt = validateProfile('cv:\n  output_format: doxc\n', FORMATS);
+  check(typoFmt.findings.some(f => f.code === 'unknown-output-format' && f.suggestion === 'docx'), 'doxc suggests docx');
+  const caseFmt = validateProfile('cv:\n  output_format: DOCX\n', FORMATS);
+  check(caseFmt.findings.some(f => f.code === 'unknown-output-format' && f.suggestion === 'docx'), 'DOCX suggests docx');
 
   console.log(`\n  validate-profile self-test: ${pass} passed, ${fail} failed\n`);
   process.exit(fail > 0 ? 1 : 0);

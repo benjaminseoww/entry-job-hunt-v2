@@ -94,7 +94,7 @@ _Extracted from writing-samples/ on {date}. Re-run if new samples are added._
 
 ## Professional Writing & ATS Compatibility
 
-These rules apply to ALL generated text that ends up in candidate-facing documents: PDF summaries, bullets, cover letters, form answers, LinkedIn messages. They do NOT apply to internal evaluation reports.
+These rules apply to ALL generated text that ends up in candidate-facing documents: CV summaries, bullets, cover letters, form answers, LinkedIn messages. They do NOT apply to internal evaluation reports.
 
 For recruiter-side risk mapping, six-second clarity, business-value bullets, and ATS reality checks, read `modes/heuristics/recruiter-side.md`.
 
