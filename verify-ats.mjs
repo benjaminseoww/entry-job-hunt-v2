@@ -5,12 +5,15 @@
  *
  * The twin of verify-cv-facts.mjs: that gate guards *what* a CV claims; this one
  * guards *whether an ATS can parse it at all*. No LLM, no network, no writes — it
- * reads one CV HTML (the output of `pdf` mode, before PDF rendering) and reports a
- * 0-100 structural score, a letter grade, and a list of concrete, fixable issues.
+ * reads one generated CV and reports a 0-100 structural score, a letter grade,
+ * and a list of concrete, fixable issues. HTML (the output of `pdf` mode, before
+ * PDF rendering) runs every check. Markdown scores text-level checks (layout n/a).
+ * Word scores the visible body plus body XML for tables, images, and hidden text; fonts and charset stay n/a.
  *
  * Usage:
- *   node verify-ats.mjs <generated-cv.html>
+ *   node verify-ats.mjs <generated-cv.html|md|markdown|txt|docx>
  *   node verify-ats.mjs <generated-cv.html> --keywords "python,kubernetes,rag"
+ *   node verify-ats.mjs <generated-cv.docx> --json
  *   node verify-ats.mjs <generated-cv.html> --role "Senior Backend Engineer"
  *   node verify-ats.mjs <generated-cv.html> --min-score 80 --json
  *   node verify-ats.mjs --self-test
@@ -21,10 +24,12 @@
  */
 
 import { readFileSync, statSync } from 'fs';
-import { isAbsolute, join, basename } from 'path';
+import { isAbsolute, join, basename, extname } from 'path';
 import { fileURLToPath } from 'url';
-import { isMainModule } from './lib/is-main-module.mjs'; 
+import { isMainModule } from './lib/is-main-module.mjs';
 import { asciiFold } from './lib/ascii-fold.mjs';
+import { headingText, normalizePandocLine } from './lib/cv-markdown.mjs';
+import { extractDocxParts, MAX_DOCX_BYTES } from './lib/docx-text.mjs';
 
 const DEFAULT_MIN_SCORE = 70;
 
@@ -40,6 +45,12 @@ const WEIGHTS = {
   charset: 5,      // UTF-8 declared
   hidden: 5,       // no hidden text / keyword stuffing
 };
+
+// Markdown lists these as n/a. Word scores layout/images/hidden from XML; fonts+charset stay n/a.
+const HTML_ONLY_CHECKS = ['layout', 'images', 'fonts', 'charset', 'hidden'];
+const DOCX_NA_CHECKS = ['fonts', 'charset'];
+const REFUSED_ATS_EXTS = new Set(['.pdf', '.doc', '.rtf']);
+const PLAIN_ATS_EXTS = new Set(['.md', '.markdown', '.txt']);
 
 const TEXT_MIN_CHARS = 300;      // below this, the CV likely has no real text layer
 const TEXT_LOW_WITH_IMG = 800;   // images + this little text ⇒ text probably baked in
@@ -456,6 +467,105 @@ function gradeFor(score) {
 }
 
 /**
+ * Word-start match: `formation` must not hit `Information`. `\b` is ASCII-only, so the boundary is "not preceded by a letter or digit".
+ */
+const startsWord = (terms) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${terms.join('|')})`, 'u');
+const REQUIRED_SECTIONS = [
+  { name: 'Experience', re: startsWord([
+    'experience', 'work history', 'work experience', 'employment', // en
+    'experien', 'esperienza',                            // es pt fr (folded); it spells it with an s
+    'erfahrung', 'berufserfahrung', 'arbeitserfahrung', 'werdegang', // de: compounds put it last
+    'ervaring', 'werkervaring', 'loopbaan',              // nl
+    'doswiadczenie', 'przebieg kariery',                 // pl
+    'deneyim',                                           // tr
+    'erhvervserfaring', 'karriereforlob',                // da
+    'riwayat karier', 'pengalaman',                      // id
+    'parcours professionnel',                            // fr
+    'trayectoria', 'trajetoria',                         // es pt
+    'percorso professionale',                            // it
+    '職務経歴', '職歴',                                    // ja
+    '경력',                                                // ko
+    'опыт работы',                                    // ru
+    'досвід роботи',                                    // ua
+    'الخبرات', 'التاريخ المهني',                        // ar
+    'करियर',                                              // hi
+    '工作经历', '工作經歷',                                  // zh zh-TW
+  ]) },
+  { name: 'Education', re: startsWord([
+    'education', 'academic',                             // en
+    'formation', 'formacion', 'formacao',                // fr es pt
+    'ausbildung', 'bildung', 'studium',                  // de
+    'istruzione',                                        // it
+    'opleiding',                                         // nl
+    'wyksztalcenie',                                     // pl
+    'egitim',                                            // tr
+    'uddannelse',                                        // da
+    'pendidikan',                                        // id
+    '学歴',                                                // ja
+    '학력',                                                // ko
+    'образование',                                      // ru
+    'освіта',                                              // ua
+    'التعليم', 'المؤهلات',                            // ar
+    'शिक्षा',                                             // hi
+    '教育背景', '學歷',                                    // zh zh-TW
+  ]) },
+  { name: 'Skills', re: startsWord([
+    'skills', 'competen', 'proficienc',                  // en, + es pt fr folded; 'competen' also covers it 'Competenze'
+    'kenntnisse', 'fachkenntnisse', 'sprachkenntnisse', 'fahigkeiten', // de
+    'habilidades',                                       // es pt
+    'vaardigheden',                                      // nl
+    'umiejetnosci',                                      // pl
+    'beceri',                                            // tr
+    'kompetenc', 'kernkompetenc',                        // da + pl/pt variants
+    'keahlian',                                          // id
+    'スキル',                                              // ja
+    '역량', '기술',                                          // ko
+    'навыки',                                              // ru
+    'навички',                                             // ua
+    'مهارات',                                             // ar
+    'कौशल',                                               // hi
+    '技能', '专业技能', '專業技能',                           // zh zh-TW: 專業技能 does not start with 技能
+  ]) },
+];
+const BONUS_SECTION_RES = [/professional summary|summary|profile|objective/, /projects/, /certificat|licenses/];
+/** Leftover tokens allowed after stripping a section term ("Work Experience"). */
+const HEADING_QUALIFIERS = new Set([
+  'professional', 'relevant', 'core', 'key', 'technical', 'additional',
+  'career', 'work', 'personal', 'academic',
+]);
+
+function applySectionScore(headingBlob, add) {
+  let points = 0;
+  const missing = [];
+  for (const s of REQUIRED_SECTIONS) {
+    if (s.re.test(headingBlob)) points += 5;
+    else missing.push(s.name);
+  }
+  const bonus = BONUS_SECTION_RES.filter(re => re.test(headingBlob)).length;
+  points += Math.min(5, bonus * 2);
+  if (missing.length) {
+    add(missing.length >= 2 ? 'critical' : 'warning',
+      `Missing standard section heading(s): ${missing.join(', ')}. ATS parsers key off recognizable headings (Experience, Education, Skills).`);
+  }
+  return points;
+}
+
+/** Advisory keyword coverage — never folded into the structural score. */
+function keywordCoverageFor(text, opts) {
+  const keywords = normalizeKeywords(opts.keywords, opts.role);
+  if (!keywords.length) return null;
+  const haystack = text.toLowerCase();
+  const found = keywords.filter(k => haystack.includes(k.toLowerCase()));
+  const missingKeywords = keywords.filter(k => !haystack.includes(k.toLowerCase()));
+  return {
+    total: keywords.length,
+    found: found.length,
+    percent: Math.round((found.length / keywords.length) * 100),
+    missing: missingKeywords,
+  };
+}
+
+/**
  * Score a CV HTML string for ATS-friendliness.
  * @param {string} html
  * @param {{keywords?: string|string[], role?: string}} [opts]
@@ -482,93 +592,7 @@ function auditAts(html, opts = {}) {
 
   // 2. Standard section headings.
   const headingBlob = extractHeadings(html).join(' | ');
-  // Matched against BOTH the raw heading and its ASCII fold (extractHeadings
-  // emits each). The Latin terms are therefore written unaccented: `competenc`
-  // catches Competences, Competências and Competenze via the fold, so only
-  // genuinely different words need their own alternative.
-  //
-  // career-ops ships evaluation modes for ar, da, de, es, fr, hi, id, it, ja,
-  // ko, nl, pl, pt, ru, tr, ua, zh and zh-TW, and before this every one of
-  // them failed the gate on a structurally perfect CV. The Skills and
-  // experience terms are taken from the `| Skills |` and `| Career history |`
-  // rows of each modes/<lang>/README.md rather than invented here; the
-  // education terms had no such table and are the ordinary CV heading in each
-  // language. Native-speaker corrections welcome, as in #3223.
-  // Each term must START a word: `formation` must not be found inside
-  // `Information`, nor `formacion` inside `Informacion`. `\b` is ASCII-only, so
-  // the boundary is "not preceded by a letter or digit" in any script. Terms
-  // stay open on the right (`experien`, `competen`) and the German, Dutch and
-  // Danish compounds that put the key word LAST are listed whole.
-  const startsWord = (terms) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${terms.join('|')})`, 'u');
-  const required = [
-    { name: 'Experience', re: startsWord([
-      'experience', 'work history', 'employment',          // en
-      'experien', 'esperienza',                            // es pt fr (folded); it spells it with an s
-      'erfahrung', 'berufserfahrung', 'arbeitserfahrung', 'werdegang', // de: compounds put it last
-      'ervaring', 'werkervaring', 'loopbaan',              // nl
-      'doswiadczenie', 'przebieg kariery',                 // pl
-      'deneyim',                                           // tr
-      'erhvervserfaring', 'karriereforlob',                // da
-      'riwayat karier', 'pengalaman',                      // id
-      'parcours professionnel',                            // fr
-      'trayectoria', 'trajetoria',                         // es pt
-      'percorso professionale',                            // it
-      '職務経歴', '職歴',                                    // ja
-      '경력',                                                // ko
-      'опыт работы',                                    // ru
-      'досвід роботи',                                    // ua
-      'الخبرات', 'التاريخ المهني',                        // ar
-      'करियर',                                              // hi
-      '工作经历', '工作經歷',                                  // zh zh-TW
-    ]) },
-    { name: 'Education', re: startsWord([
-      'education', 'academic',                             // en
-      'formation', 'formacion', 'formacao',                // fr es pt
-      'ausbildung', 'bildung', 'studium',                  // de
-      'istruzione',                                        // it
-      'opleiding',                                         // nl
-      'wyksztalcenie',                                     // pl
-      'egitim',                                            // tr
-      'uddannelse',                                        // da
-      'pendidikan',                                        // id
-      '学歴',                                                // ja
-      '학력',                                                // ko
-      'образование',                                      // ru
-      'освіта',                                              // ua
-      'التعليم', 'المؤهلات',                            // ar
-      'शिक्षा',                                             // hi
-      '教育背景', '學歷',                                    // zh zh-TW
-    ]) },
-    { name: 'Skills', re: startsWord([
-      'skills', 'competen', 'proficienc',                  // en, + es pt fr folded; 'competen' also covers it 'Competenze'
-      'kenntnisse', 'fachkenntnisse', 'sprachkenntnisse', 'fahigkeiten', // de
-      'habilidades',                                       // es pt
-      'vaardigheden',                                      // nl
-      'umiejetnosci',                                      // pl
-      'beceri',                                            // tr
-      'kompetenc', 'kernkompetenc',                        // da + pl/pt variants
-      'keahlian',                                          // id
-      'スキル',                                              // ja
-      '역량', '기술',                                          // ko
-      'навыки',                                              // ru
-      'навички',                                             // ua
-      'مهارات',                                             // ar
-      'कौशल',                                               // hi
-      '技能', '专业技能', '專業技能',                           // zh zh-TW: 專業技能 does not start with 技能
-    ]) },
-  ];
-  const missing = [];
-  for (const s of required) {
-    if (s.re.test(headingBlob)) score += 5;
-    else missing.push(s.name);
-  }
-  const bonus = [/summary|profile|objective/, /projects/, /certificat|licenses/]
-    .filter(re => re.test(headingBlob)).length;
-  score += Math.min(5, bonus * 2);
-  if (missing.length) {
-    add(missing.length >= 2 ? 'critical' : 'warning',
-      `Missing standard section heading(s): ${missing.join(', ')}. ATS parsers key off recognizable headings (Experience, Education, Skills).`);
-  }
+  score += applySectionScore(headingBlob, add);
 
   // 3. Contact info reachable in the body. We strip only *semantic* <header>/
   // <footer> elements: those map to the PDF page header/footer regions ATS
@@ -698,23 +722,231 @@ function auditAts(html, opts = {}) {
     add('warning', `Possible hidden text / keyword stuffing (${hiddenSignals.join(', ')}). Hidden keywords are penalised by modern ATS and by recruiters who read the extracted text.`);
   }
 
-  // Optional, advisory keyword coverage — never folded into the structural score.
-  let keywordCoverage = null;
-  const keywords = normalizeKeywords(opts.keywords, opts.role);
-  if (keywords.length) {
-    const haystack = text.toLowerCase();
-    const found = keywords.filter(k => haystack.includes(k.toLowerCase()));
-    const missingKeywords = keywords.filter(k => !haystack.includes(k.toLowerCase()));
-    keywordCoverage = {
-      total: keywords.length,
-      found: found.length,
-      percent: Math.round((found.length / keywords.length) * 100),
-      missing: missingKeywords,
-    };
-  }
+  const keywordCoverage = keywordCoverageFor(text, opts);
 
   score = Math.max(0, Math.min(100, Math.round(score)));
   return { score, grade: gradeFor(score), issues, keywordCoverage };
+}
+
+/**
+ * Fallback when XML pPr is missing: known section terms only (학력/学歴/技能, Title Case), not all-caps acronyms.
+ */
+function isWordDisplayHeading(line) {
+  if (line.length > 80 || /[.!?。！？]$/u.test(line)) return false;
+  return isEntirelySectionHeading(line);
+}
+
+/** Whole line is a section heading, not a sentence that contains the term. */
+function isEntirelySectionHeading(line) {
+  const candidates = [line.toLowerCase(), asciiFold(line).toLowerCase()];
+  const strip = (s, re) => {
+    const m = s.match(re);
+    if (!m) return null;
+    return (s.slice(0, m.index) + s.slice(m.index + m[0].length)).replace(/[\s:：\-–—|/·•.,]/g, '');
+  };
+  const isHeadingRemainder = (remainder) => remainder === '' || HEADING_QUALIFIERS.has(remainder);
+  for (const s of REQUIRED_SECTIONS) {
+    for (const c of candidates) {
+      const remainder = strip(c, s.re);
+      if (remainder !== null && isHeadingRemainder(remainder)) return true;
+    }
+  }
+  for (const re of BONUS_SECTION_RES) {
+    for (const c of candidates) {
+      const remainder = strip(c, re);
+      if (remainder !== null && isHeadingRemainder(remainder)) return true;
+    }
+  }
+  return false;
+}
+
+function foldHeadingList(headings) {
+  return headings
+    .flatMap(s => [s.toLowerCase(), asciiFold(s).toLowerCase()])
+    .filter(Boolean);
+}
+
+/** ATX headings; for Word, also standalone section-term lines when XML pPr is missing. */
+function extractPlainHeadings(text, opts = {}) {
+  const out = [];
+  const allowCaps = opts.kind === 'docx';
+  for (const raw of String(text).split(/\r?\n/)) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const normalized = normalizePandocLine(trimmed);
+    let heading = null;
+    for (let level = 1; level <= 6; level++) {
+      heading = headingText(normalized, level);
+      if (heading) break;
+    }
+    if (heading) {
+      out.push(heading);
+      continue;
+    }
+    if (allowCaps && isWordDisplayHeading(trimmed)) out.push(trimmed);
+  }
+  return foldHeadingList(out);
+}
+
+function naReason(kind) {
+  if (kind === 'md') return 'n/a for markdown';
+  if (kind === 'txt') return 'n/a for plain text';
+  return 'n/a for Word';
+}
+
+function awardNaChecks(score, add, checks, reason) {
+  const naChecks = [];
+  let next = score;
+  for (const check of checks) {
+    next += WEIGHTS[check];
+    add('info', `${check}: ${reason}`);
+    naChecks.push(check);
+  }
+  return { score: next, naChecks };
+}
+
+/**
+ * Score markdown/.txt on text-level checks; HTML layout checks are n/a so a well-formed file is not failed for missing CSS.
+ */
+function auditAtsPlain(text, opts = {}) {
+  const kind = opts.kind === 'txt' ? 'txt' : 'md';
+  const reason = naReason(kind);
+  const issues = [];
+  const add = (severity, message) => issues.push({ severity, message });
+  let score = 0;
+
+  if (text.length >= TEXT_MIN_CHARS) {
+    score += WEIGHTS.text;
+  } else {
+    add('critical', `Very little selectable text (${text.length} chars, expected >= ${TEXT_MIN_CHARS}). The CV may be image-based or rasterized; ATS parsers need a real text layer.`);
+  }
+
+  const headingBlob = extractPlainHeadings(text, { kind }).join(' | ');
+  score += applySectionScore(headingBlob, add);
+
+  const hasEmail = EMAIL_RE.test(text);
+  const hasPhone = hasPhoneNumber(text);
+  if (hasEmail) {
+    score += 10;
+  } else {
+    add('critical', 'No email address found. ATS and recruiters need a parseable contact email in the body of the CV.');
+  }
+  if (hasPhone) score += 5;
+  else add('info', 'No phone number detected (optional, but many ATS intake forms expect one).');
+
+  const awarded = awardNaChecks(score, add, HTML_ONLY_CHECKS, reason);
+  const keywordCoverage = keywordCoverageFor(text, opts);
+  score = Math.max(0, Math.min(100, Math.round(awarded.score)));
+  return { score, grade: gradeFor(score), issues, keywordCoverage, naChecks: awarded.naChecks };
+}
+
+/** Score a Word CV from visible body text; layout/hidden from body XML. Fonts and charset n/a. */
+function auditAtsDocx(parts, opts = {}) {
+  const issues = [];
+  const add = (severity, message) => issues.push({ severity, message });
+  let score = 0;
+  const bodyText = parts.body || '';
+  const visible = parts.bodyVisible || '';
+
+  if (bodyText.length >= TEXT_MIN_CHARS) {
+    score += WEIGHTS.text;
+  } else {
+    add('critical', `Very little selectable text (${bodyText.length} chars, expected >= ${TEXT_MIN_CHARS}). The CV may be image-based or rasterized; ATS parsers need a real text layer.`);
+  }
+
+  const xmlHeadings = parts.headings || [];
+  const fallback = extractPlainHeadings(visible, { kind: 'docx' });
+  const headingBlob = [...foldHeadingList(xmlHeadings), ...fallback].join(' | ');
+  score += applySectionScore(headingBlob, add);
+
+  const emailInBody = EMAIL_RE.test(visible);
+  const emailHiddenInBody = !emailInBody && EMAIL_RE.test(bodyText);
+  const emailElsewhere = EMAIL_RE.test(parts.headerFooter || '') || EMAIL_RE.test(parts.notes || '');
+  const hasPhone = hasPhoneNumber(visible)
+    || hasPhoneNumber(parts.headerFooter || '')
+    || hasPhoneNumber(parts.notes || '');
+  if (emailInBody) {
+    score += 10;
+  } else if (emailElsewhere) {
+    add('critical', 'Contact email appears only inside the Word header/footer; ATS routinely drop those regions, so the address is effectively unreachable. Move contact details into the main document body.');
+  } else if (emailHiddenInBody) {
+    add('critical', 'Contact email is hidden in the document body (vanished, white, or tiny text); ATS and recruiters will not see it. Make the address visible in the main document body.');
+  } else {
+    add('critical', 'No email address found. ATS and recruiters need a parseable contact email in the body of the CV.');
+  }
+  if (hasPhone) score += 5;
+  else add('info', 'No phone number detected (optional, but many ATS intake forms expect one).');
+
+  let layout = WEIGHTS.layout;
+  if (parts.tables > 0) {
+    layout -= 12;
+    add('critical', `Found ${parts.tables} Word table(s) (<w:tbl>). Table-based layouts scramble the reading order ATS extractors follow; use a single-column flow.`);
+  }
+  if (parts.textBoxes > 0) {
+    layout -= 8;
+    add('warning', `Found ${parts.textBoxes} text box(es). Text boxes sit outside the main story and ATS extractors often skip or reorder them.`);
+  }
+  if (parts.multiColumn) {
+    layout -= 8;
+    add('warning', 'Word multi-column section detected (w:cols num>1). Single-column content parses most reliably.');
+  }
+  score += Math.max(0, layout);
+
+  let imageScore = WEIGHTS.images;
+  if (parts.images > 0 && visible.length < TEXT_LOW_WITH_IMG) {
+    imageScore = 0;
+    add('critical', `Found ${parts.images} Word drawing/pict image(s) with little surrounding text (${visible.length} chars). Text baked into images is invisible to ATS.`);
+  } else if (parts.images > 0) {
+    imageScore -= 5;
+    add('warning', `Found ${parts.images} Word drawing/pict image(s). Ensure no CV text (skills, headings, contact) is baked into images — ATS cannot read image text.`);
+  }
+  score += Math.max(0, imageScore);
+
+  const awarded = awardNaChecks(score, add, DOCX_NA_CHECKS, naReason('docx'));
+  score = awarded.score;
+
+  if (!parts.hiddenSignals.length) {
+    score += WEIGHTS.hidden;
+  } else {
+    add('warning', `Possible hidden text / keyword stuffing (${parts.hiddenSignals.join(', ')}). Hidden keywords are penalised by modern ATS and by recruiters who read the extracted text.`);
+  }
+
+  const keywordCoverage = keywordCoverageFor(visible, opts);
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  return { score, grade: gradeFor(score), issues, keywordCoverage, naChecks: awarded.naChecks };
+}
+
+function readDocxForAts(targetPath) {
+  const { size } = statSync(targetPath);
+  if (size > MAX_DOCX_BYTES) throw new Error(`Corrupt .docx: file exceeds ${MAX_DOCX_BYTES} bytes`);
+  try {
+    const parts = extractDocxParts(readFileSync(targetPath));
+    const all = `${parts.body}\n${parts.headerFooter}\n${parts.notes}`;
+    if (!all.replace(/\s+/g, '')) throw new Error('no readable text in .docx');
+    return parts;
+  } catch (err) {
+    const msg = String(err?.message || err);
+    if (msg.startsWith('Corrupt .docx:') || msg === 'no readable text in .docx') throw err;
+    throw new Error(`Corrupt .docx: ${msg}`);
+  }
+}
+
+/**
+ * Score a generated CV file: .docx via XML, .md/.txt as UTF-8, .pdf/.doc/.rtf refused, else HTML.
+ */
+function auditAtsFromPath(targetPath, opts = {}) {
+  const ext = extname(targetPath).toLowerCase();
+  if (REFUSED_ATS_EXTS.has(ext)) {
+    throw new Error(`verify-ats.mjs does not score ${ext} files; score the .html/.md/.docx instead`);
+  }
+  if (ext === '.docx') {
+    return auditAtsDocx(readDocxForAts(targetPath), opts);
+  }
+  if (PLAIN_ATS_EXTS.has(ext)) {
+    const kind = ext === '.txt' ? 'txt' : 'md';
+    return auditAtsPlain(readFileSync(targetPath, 'utf-8'), { ...opts, kind });
+  }
+  return auditAts(readFileSync(targetPath, 'utf-8'), opts);
 }
 
 /**
@@ -731,11 +963,16 @@ function isPass(result, minScore) {
 export {
   extractVisibleText,
   extractHeadings,
+  extractPlainHeadings,
   auditAts,
+  auditAtsPlain,
+  auditAtsFromPath,
   gradeFor,
   isPass,
   normalizeKeywords,
   DEFAULT_MIN_SCORE,
+  HTML_ONLY_CHECKS,
+  DOCX_NA_CHECKS,
 };
 
 // ── Self-test ────────────────────────────────────────────────────────
@@ -1300,11 +1537,16 @@ if (isMainModule(import.meta.url)) {
 
     const helpRequested = args.includes('--help') || args.includes('-h');
     if (!targetArg || helpRequested) {
-      console.log(`Usage: node verify-ats.mjs <generated-cv.html> [--keywords "a,b,c"] [--role "..."] [--min-score N] [--json]
+      console.log(`Usage: node verify-ats.mjs <generated-cv.html|md|markdown|txt|docx> [--keywords "a,b,c"] [--role "..."] [--min-score N] [--json]
 
-Scores a generated CV's HTML for ATS parseability (0-100 + letter grade) and lists
-concrete, fixable issues. Deterministic, read-only. Exits 0 when score >= --min-score
-(default ${DEFAULT_MIN_SCORE}) and no critical issue is present, else 1.
+Scores a generated CV for ATS parseability (0-100 + letter grade) and lists
+concrete, fixable issues. HTML runs every check. Markdown (.md / .markdown) and
+plain text (.txt) run the text-level checks only; layout checks that need HTML
+are listed as n/a and awarded in full. Word (.docx) scores body text plus XML
+layout/images/hidden checks; fonts and charset stay n/a. .pdf / .doc / .rtf
+are refused — score the .html/.md/.docx instead. Deterministic, read-only.
+Exits 0 when score >= --min-score (default ${DEFAULT_MIN_SCORE}) and no critical
+issue is present, else 1.
 
 Keyword coverage (--keywords / --role) is advisory and never changes the score.`);
       // An explicit --help is a success; a missing target is a usage error.
@@ -1312,15 +1554,14 @@ Keyword coverage (--keywords / --role) is advisory and never changes the score.`
     }
 
     const targetPath = isAbsolute(targetArg) ? targetArg : join(process.cwd(), targetArg);
-    let html;
+    let result;
     try {
       if (!statSync(targetPath).isFile()) throw new Error('not a regular file');
-      html = readFileSync(targetPath, 'utf-8');
+      result = auditAtsFromPath(targetPath, { keywords, role });
     } catch (err) {
       console.error(`ERROR: cannot read target file: ${targetArg} (${err.code || err.message})`);
       process.exit(1);
     }
-    const result = auditAts(html, { keywords, role });
     const pass = isPass(result, minScore);
     const file = basename(targetPath);
 
