@@ -180,9 +180,13 @@ test("a cover letter that took over the report number never becomes the CV sourc
   );
 });
 
-test("companyFromTitle reads @ Company and Role at Company without a regex on the raw title", () => {
+test("companyFromTitle reads @ Company, Role at Company, and Company — Role", () => {
   assert.equal(companyFromTitle("Staff Engineer @ Acme Corp"), "Acme Corp");
+  assert.equal(companyFromTitle("Role - Region @ Acme Corp"), "Acme Corp");
   assert.equal(companyFromTitle("Role at Globex"), "Globex");
+  assert.equal(companyFromTitle("Acme Corp — Staff Engineer"), "Acme Corp");
+  assert.equal(companyFromTitle("Acme Corp – Staff Engineer"), "Acme Corp");
+  assert.equal(companyFromTitle("Staff Engineer - Platform"), "");
   assert.equal(companyFromTitle(""), "");
   assert.equal(companyFromTitle("Engineer"), "");
 });

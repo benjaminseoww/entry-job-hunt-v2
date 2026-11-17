@@ -79,6 +79,15 @@ export async function resolveSessionCv(opts: { company?: string; application?: s
  * Used as a fallback when the apply flow was started by pasting a URL (no offer
  * context) rather than from a report's Apply button.
  */
+function plausibleCompany(name: string): boolean {
+  if (!name || name[0] < "A" || name[0] > "Z") return false;
+  for (let i = 1; i < name.length; i++) {
+    const c = name[i];
+    if (c !== " " && c !== "&" && c !== "." && c !== "-" && !/[\w]/.test(c)) return false;
+  }
+  return true;
+}
+
 export function companyFromTitle(title?: string): string {
   const t = (title ?? "").trim().slice(0, 300);
   if (!t) return "";
@@ -91,17 +100,16 @@ export function companyFromTitle(title?: string): string {
   const atWord = t.toLowerCase().lastIndexOf(marker);
   if (atWord !== -1) {
     const rest = t.slice(atWord + marker.length).trim();
-    if (rest && rest[0] >= "A" && rest[0] <= "Z") {
-      let ok = true;
-      for (let i = 1; i < rest.length; i++) {
-        const c = rest[i];
-        if (c !== " " && c !== "&" && c !== "." && c !== "-" && !/[\w]/.test(c)) {
-          ok = false;
-          break;
-        }
-      }
-      if (ok) return rest;
-    }
+    if (plausibleCompany(rest)) return rest;
+  }
+  // "Company — Role" / "Company – Role" (em/en dash). Hyphen is too common in titles.
+  let dash = -1;
+  for (let i = 0; i < t.length; i++) {
+    if (t[i] === "\u2014" || t[i] === "\u2013") dash = i;
+  }
+  if (dash !== -1) {
+    const left = t.slice(0, dash).trim();
+    if (plausibleCompany(left) && !left.includes("@")) return left;
   }
   return "";
 }

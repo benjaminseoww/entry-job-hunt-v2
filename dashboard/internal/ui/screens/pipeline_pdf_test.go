@@ -151,6 +151,9 @@ func TestRegenerateKeyFlashesWithoutManifestEntry(t *testing.T) {
 	if updated.flash == "" {
 		t.Fatal("expected a flash notice without a manifest entry")
 	}
+	if !strings.Contains(updated.flash, "/career-ops pdf") || !strings.Contains(updated.flash, "/career-ops docx") {
+		t.Fatalf("expected a format-neutral source flash, got %q", updated.flash)
+	}
 }
 
 func TestRegenerateKeyDoesNotUseCompanyPrefixMatch(t *testing.T) {
@@ -176,6 +179,9 @@ func TestRegenerateKeyDoesNotUseCompanyPrefixMatch(t *testing.T) {
 	}
 	if updated.flash == "" {
 		t.Fatal("expected a no-source flash for the Meta application")
+	}
+	if !strings.Contains(updated.flash, "/career-ops pdf") || !strings.Contains(updated.flash, "/career-ops docx") {
+		t.Fatalf("expected a format-neutral source flash, got %q", updated.flash)
 	}
 }
 
