@@ -201,10 +201,8 @@ func LoadPDFManifest(careerOpsPath string) PDFManifest {
 // filenames (cv-{candidate}-{slug}-{date}.pdf or .docx).
 var rePDFDate = regexp.MustCompile(`(\d{4}-\d{2}-\d{2})\.(?:pdf|docx)$`)
 
-// WordCV reports whether an index row is a Word document. The pdf column
-// holds the .docx path; the html column holds the tailored .md. The output
-// extension decides; the companion is consulted only when the pdf column is
-// empty (an unindexed glob with no recorded output path).
+// WordCV follows the output extension; the .md companion is used only when
+// the pdf column is empty (unindexed glob with no recorded output path).
 func WordCV(pdfPath, htmlPath string) bool {
 	if pdfPath != "" {
 		return strings.EqualFold(filepath.Ext(pdfPath), ".docx")

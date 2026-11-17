@@ -60,10 +60,8 @@ type PipelineGeneratePDFMsg struct {
 	Format        string
 }
 
-// PipelinePDFGeneratedMsg reports the outcome of a regeneration. On success
-// Err is empty and Path holds the absolute path of the (already opened) file.
-// Note is an optional warning appended to a successful flash (for example
-// when generate-docx.mjs wrote the file but failed to update pdf-index.tsv).
+// PipelinePDFGeneratedMsg is a regeneration outcome. Note is appended on
+// success (generate-docx can exit 0 after an index failure).
 type PipelinePDFGeneratedMsg struct {
 	Err  string
 	Path string

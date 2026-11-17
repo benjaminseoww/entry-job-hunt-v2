@@ -371,9 +371,8 @@ func summarizeCmdError(err error, out []byte) string {
 	return err.Error()
 }
 
-// indexFailureNote extracts generate-docx.mjs's non-fatal index error
-// ("generate-docx: index failed: …"). The generator still exits 0 after
-// writing the file, so CombinedOutput success would otherwise hide it.
+// indexFailureNote returns generate-docx's non-fatal index error; the
+// generator exits 0 after writing, so CombinedOutput success would hide it.
 func indexFailureNote(out []byte) string {
 	for _, line := range strings.Split(string(out), "\n") {
 		if strings.Contains(line, "index failed:") {
