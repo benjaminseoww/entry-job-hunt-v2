@@ -17,6 +17,13 @@ const script = readFileSync(scriptPath, 'utf8');
 const skill = readFileSync(skillPath, 'utf8');
 const conflictHead = `${'<'.repeat(7)} HEAD`;
 
+function bashWithEnv(bash, script, extraEnv) {
+  return execFileSync(bash, ['-c', script], {
+    encoding: 'utf8',
+    env: { ...process.env, ...extraEnv },
+  });
+}
+
 {
   const syntax = spawnSync(getBash(), ['-n', scriptPath], { encoding: 'utf8' });
   if (syntax.status === 0) pass(`${SCRIPT} passes bash -n`);
@@ -173,18 +180,22 @@ echo unreachable
       writeFileSync(join(work, 'git-index'), 'stale-index\n');
       symlinkSync('link-target.txt', join(pre, 'keep-link'));
 
-      const out = execFileSync(bash, ['-c', `
+      const overlayEnv = {
+        RUNNER_TEMP: runnerTemp,
+        GIT_INDEX: join(work, 'git-index'),
+        SCRIPT_PATH: scriptPath,
+        WORK: work,
+      };
+      const out = bashWithEnv(bash, `
         set -euo pipefail
-        export RUNNER_TEMP=${JSON.stringify(runnerTemp)}
-        export GIT_INDEX=${JSON.stringify(join(work, 'git-index'))}
-        source ${JSON.stringify(scriptPath)}
-        cd ${JSON.stringify(work)}
+        source "$SCRIPT_PATH"
+        cd "$WORK"
         restore_pre_agent
         git init -q
         overlay_agent_files
         assert_only_conflicted_files_differ_from_pre_agent
         echo overlay-ok
-      `], { encoding: 'utf8' }).trim();
+      `, overlayEnv).trim();
 
       const kept = readFileSync(join(work, 'keep-me.txt'), 'utf8');
       const overlay = readFileSync(join(work, 'lib', 'schema.mjs'), 'utf8');
@@ -202,14 +213,12 @@ echo unreachable
       symlinkSync('keep-me.txt', join(work, 'extra-link'));
       let extraCaught = false;
       try {
-        execFileSync(bash, ['-c', `
+        bashWithEnv(bash, `
           set -euo pipefail
-          export RUNNER_TEMP=${JSON.stringify(runnerTemp)}
-          export GIT_INDEX=${JSON.stringify(join(work, 'git-index'))}
-          source ${JSON.stringify(scriptPath)}
-          cd ${JSON.stringify(work)}
+          source "$SCRIPT_PATH"
+          cd "$WORK"
           assert_only_conflicted_files_differ_from_pre_agent
-        `], { encoding: 'utf8' });
+        `, overlayEnv);
       } catch (err) {
         extraCaught = /not in the conflict list/.test(String(err.stderr || err.stdout || err.message));
       }
@@ -232,12 +241,11 @@ echo unreachable
       mkdirSync(join(runnerTemp, 'agent-files', 'lib'), { recursive: true });
       writeFileSync(join(runnerTemp, 'conflicts-after.txt'), 'lib/schema.mjs\n');
       writeFileSync(join(runnerTemp, 'agent-files', 'lib', 'schema.mjs'), `${'='.repeat(7)}\nstill conflicted\n`);
-      const out = execFileSync(bash, ['-c', `
+      const out = bashWithEnv(bash, `
         set -euo pipefail
-        export RUNNER_TEMP=${JSON.stringify(runnerTemp)}
-        source ${JSON.stringify(scriptPath)}
+        source "$SCRIPT_PATH"
         if agent_left_markers; then echo markers-yes; else echo markers-no; fi
-      `], { encoding: 'utf8' }).trim();
+      `, { RUNNER_TEMP: runnerTemp, SCRIPT_PATH: scriptPath }).trim();
       if (out === 'markers-yes') pass('agent_left_markers detects the seven-equals separator');
       else fail(`separator not detected: ${JSON.stringify(out)}`);
     } finally {
