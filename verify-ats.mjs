@@ -106,10 +106,12 @@ function collapse(text) {
 }
 
 // The named entities a generated CV actually carries: the Latin-1 letters an
-// accented heading is written with, plus the five markup ones. Anything else
-// arrives numeric, which is handled generically below.
+// accented heading is written with, plus the five markup ones, plus the curly
+// quotes a CV written by hand or exported from an editor spells by name.
+// Anything else arrives numeric, which is handled generically below.
 const NAMED_ENTITIES = {
   nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'",
+  lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”',
   agrave: 'à', aacute: 'á', acirc: 'â', atilde: 'ã', auml: 'ä', aring: 'å', aelig: 'æ',
   ccedil: 'ç', egrave: 'è', eacute: 'é', ecirc: 'ê', euml: 'ë',
   igrave: 'ì', iacute: 'í', icirc: 'î', iuml: 'ï', ntilde: 'ñ',
@@ -258,16 +260,10 @@ function stripNonContentRegions(html) {
  * @returns {string}
  */
 function extractVisibleText(html) {
-  return collapse(
-    stripNonContentRegions(html)
-      .replace(/<\/?[a-zA-Z][^>]*>/g, ' ')
-      .replace(/&nbsp;/gi, ' ')
-      .replace(/&lt;/gi, '<')
-      .replace(/&gt;/gi, '>')
-      // &amp; is decoded LAST: doing it earlier could turn "&amp;lt;" into "&lt;"
-      // and then into "<", double-unescaping text that was never an entity.
-      .replace(/&amp;/gi, '&')
-  );
+  // decodeEntities is one pass, so "&amp;lt;" stays the text "&lt;". All of them
+  // matter here: build-cv-html writes every apostrophe as &#39;, so a keyword
+  // like "Master's degree" read as missing from a CV that says it.
+  return collapse(decodeEntities(stripNonContentRegions(html).replace(/<\/?[a-zA-Z][^>]*>/g, ' ')));
 }
 
 /**
@@ -346,6 +342,33 @@ function extractInlineStyles(html) {
   return [...html.matchAll(/style\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)].map(m => m[1] ?? m[2]);
 }
 
+// UTF-16 code units for the punctuation `cssDeclarations` reacts to.
+const BACKSLASH = 0x5c;
+const SLASH = 0x2f;
+const STAR = 0x2a;
+const SEMICOLON = 0x3b;
+const DOUBLE_QUOTE = 0x22;
+const SINGLE_QUOTE = 0x27;
+const LPAREN = 0x28;
+const RPAREN = 0x29;
+const LBRACKET = 0x5b;
+const RBRACKET = 0x5d;
+const LBRACE = 0x7b;
+const RBRACE = 0x7d;
+const LF = 0x0a;
+const CR = 0x0d;
+const FF = 0x0c;
+// Lowercase ASCII letters, for the `| 32` case fold that finds `url`.
+const LOWER_U = 0x75;
+const LOWER_R = 0x72;
+const LOWER_L = 0x6c;
+// CSS whitespace is five characters, not `\s`: U+00A0 is whitespace to
+// JavaScript and an ordinary character to CSS.
+const isCssSpaceCode = c => c === 0x20 || c === 0x09 || c === LF || c === CR || c === FF;
+// What may not immediately precede `url` for it to name the function: a
+// character that would make it part of a longer identifier.
+const URL_TAIL_BREAK = /[\w\u0080-\uffff-]/;
+
 /**
  * Split an inline style into its declarations the way a browser reads them. A
  * `;` ends a declaration only outside a quoted string, a comment, and any open
@@ -360,53 +383,93 @@ function extractInlineStyles(html) {
  */
 function cssDeclarations(style) {
   const declarations = [];
-  const closers = [];
-  const isCssSpace = ch => ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === '\f';
-  let current = '';
-  let quote = null;
-  for (let i = 0; i < style.length; i++) {
-    const c = style[i];
-    if (c === '\\' && i + 1 < style.length) {
-      const escaped = style[i + 1] === '\r' && style[i + 2] === '\n' ? '\r\n' : style[i + 1];
-      current += c + escaped;
-      i += escaped.length;
+  // Characters are compared as UTF-16 code units, not as one-character strings.
+  // `style[i]` allocates a fresh string per position; on the 400,000-character
+  // run the self-test uses, comparing strings and the `current += c` that
+  // followed each one were the bulk of the check's cost (38% of the audit in
+  // the loop, 29% in GC, before this rewrite).
+  const n = style.length;
+  // Open `(`/`[`/`{` as a depth-indexed stack of the code unit that closes each
+  // one. `Array#push`/`#pop` on this input cost 22 ms of the audit's 33 ms even
+  // though the stack only ever grows, so it is a preallocated buffer with an
+  // integer depth instead. Nothing can nest deeper than the string is long.
+  const closers = new Uint8Array(n + 1);
+  let depth = 0;
+  // The declaration being read is a run of characters copied verbatim. It ends
+  // only where something must be substituted: a `;` that closes a declaration,
+  // or a comment, which collapses to one space. So the scan keeps `start` and
+  // pushes slices instead of appending per character. `parts` stays null until
+  // the first substitution, and the common no-substitution case is one slice.
+  let start = 0;
+  let parts = null;
+  let quote = 0;
+  for (let i = 0; i < n; i++) {
+    const c = style.charCodeAt(i);
+    if (c === BACKSLASH && i + 1 < n) {
+      i += style.charCodeAt(i + 1) === CR && style.charCodeAt(i + 2) === LF ? 2 : 1;
       continue;
     }
     if (quote) {
-      current += c;
-      if (c === quote || c === '\n' || c === '\r' || c === '\f') quote = null;
+      if (c === quote || c === LF || c === CR || c === FF) quote = 0;
       continue;
     }
-    if (c === '/' && style[i + 1] === '*') {
+    if (c === SLASH && style.charCodeAt(i + 1) === STAR) {
       const end = style.indexOf('*/', i + 2);
-      i = end === -1 ? style.length : end + 1;
-      current += ' ';
+      parts ??= [];
+      if (i > start) parts.push(style.slice(start, i));
+      parts.push(' ');
+      i = end === -1 ? n : end + 1;
+      start = i + 1;
       continue;
     }
-    if (c === ';' && closers.length === 0) {
-      declarations.push(current);
-      current = '';
+    if (c === SEMICOLON && depth === 0) {
+      if (parts === null) {
+        declarations.push(style.slice(start, i));
+      } else {
+        if (i > start) parts.push(style.slice(start, i));
+        declarations.push(parts.join(''));
+        parts = null;
+      }
+      start = i + 1;
       continue;
     }
-    if (c === '(' && /(?:^|[^\w\u0080-\uffff-])url$/i.test(style.slice(Math.max(0, i - 4), i))) {
+    // A `(` opening an unquoted `url(`. The three letters before it are
+    // compared directly, with `| 32` folding ASCII case: the regex this
+    // replaces allocated a four-character slice and entered the regex engine
+    // for every open paren, which is the other half of the paren check's cost.
+    if (
+      c === LPAREN && i >= 3
+      && (style.charCodeAt(i - 1) | 32) === LOWER_L
+      && (style.charCodeAt(i - 2) | 32) === LOWER_R
+      && (style.charCodeAt(i - 3) | 32) === LOWER_U
+      && (i - 4 < 0 || !URL_TAIL_BREAK.test(style[i - 4]))
+    ) {
       let bodyStart = i + 1;
-      while (bodyStart < style.length && isCssSpace(style[bodyStart])) bodyStart++;
-      if (style[bodyStart] !== '"' && style[bodyStart] !== "'") {
+      while (bodyStart < n && isCssSpaceCode(style.charCodeAt(bodyStart))) bodyStart++;
+      const bodyFirst = style.charCodeAt(bodyStart);
+      if (bodyFirst !== DOUBLE_QUOTE && bodyFirst !== SINGLE_QUOTE) {
         let end = i + 1;
-        while (end < style.length && style[end] !== ')') end += style[end] === '\\' ? 2 : 1;
-        current += style.slice(i, end + 1);
-        i = Math.min(end, style.length - 1);
+        while (end < n && style.charCodeAt(end) !== RPAREN) {
+          end += style.charCodeAt(end) === BACKSLASH ? 2 : 1;
+        }
+        // The body is copied through as it stands, so `start` stays where it is
+        // and the run simply skips past it.
+        i = Math.min(end, n - 1);
         continue;
       }
     }
-    if (c === '"' || c === "'") quote = c;
-    else if (c === '(') closers.push(')');
-    else if (c === '[') closers.push(']');
-    else if (c === '{') closers.push('}');
-    else if (c === closers[closers.length - 1]) closers.pop();
-    current += c;
+    if (c === DOUBLE_QUOTE || c === SINGLE_QUOTE) quote = c;
+    else if (c === LPAREN) closers[depth++] = RPAREN;
+    else if (c === LBRACKET) closers[depth++] = RBRACKET;
+    else if (c === LBRACE) closers[depth++] = RBRACE;
+    else if (depth > 0 && c === closers[depth - 1]) depth--;
   }
-  declarations.push(current);
+  if (parts === null) {
+    declarations.push(style.slice(start));
+  } else {
+    if (n > start) parts.push(style.slice(start));
+    declarations.push(parts.join(''));
+  }
   return declarations;
 }
 
@@ -465,6 +528,26 @@ function gradeFor(score) {
   if (score >= 60) return 'D';
   return 'F';
 }
+
+// What each check needs in order to be judged (#5940). `structural` is valid on
+// an unrendered template: it reads markup and styling. `content` depends on what
+// the render payload fills in, so on a template it has no answer. The same two
+// scopes templates/ats-rules.yml gives atsLint's rules.
+const CHECK_SCOPE = {
+  'text-layer': 'content',
+  'section-headings': 'content',
+  'email-in-header-footer': 'content',
+  'email-missing': 'content',
+  'phone-missing': 'content',
+  'layout-tables': 'structural',
+  'multi-column': 'structural',
+  'absolute-positioning': 'structural',
+  'images-text-baked': 'content',
+  'images-non-photo': 'structural',
+  'fonts': 'structural',
+  'charset': 'structural',
+  'hidden-text': 'structural',
+};
 
 /**
  * Word-start match: `formation` must not hit `Information`. `\b` is ASCII-only, so the boundary is "not preceded by a letter or digit".
@@ -569,7 +652,7 @@ function keywordCoverageFor(text, opts) {
  * Score a CV HTML string for ATS-friendliness.
  * @param {string} html
  * @param {{keywords?: string|string[], role?: string}} [opts]
- * @returns {{score:number, grade:string, issues:{severity:string,message:string}[], keywordCoverage:null|{total:number,found:number,percent:number,missing:string[]}}}
+ * @returns {{score:number, grade:string, issues:{id:string,scope:'structural'|'content',severity:string,message:string}[], keywordCoverage:null|{total:number,found:number,percent:number,missing:string[]}}}
  */
 function auditAts(html, opts = {}) {
   const text = extractVisibleText(html);
@@ -581,18 +664,30 @@ function auditAts(html, opts = {}) {
   const issues = [];
   let score = 0;
 
-  const add = (severity, message) => issues.push({ severity, message });
+  const add = (id, severity, message) => issues.push({ id, scope: CHECK_SCOPE[id], severity, message });
 
   // 1. Real, selectable text.
   if (text.length >= TEXT_MIN_CHARS) {
     score += WEIGHTS.text;
   } else {
-    add('critical', `Very little selectable text (${text.length} chars, expected >= ${TEXT_MIN_CHARS}). The CV may be image-based or rasterized; ATS parsers need a real text layer.`);
+    add('text-layer', 'critical', `Very little selectable text (${text.length} chars, expected >= ${TEXT_MIN_CHARS}). The CV may be image-based or rasterized; ATS parsers need a real text layer.`);
   }
 
   // 2. Standard section headings.
   const headingBlob = extractHeadings(html).join(' | ');
-  score += applySectionScore(headingBlob, add);
+  // These localized terms supplement REQUIRED_SECTIONS; all its existing
+  // language terms remain the single source of section scores.
+  const additionalSections = [
+    { name: 'Experience', re: startsWord(['erfaring', 'arbeidserfaring', 'yrkeserfaring', 'kinh nghiem', 'lich su nghe nghiep']) },
+    { name: 'Education', re: startsWord(['utdanning', 'hoc van']) },
+    { name: 'Skills', re: startsWord(['kompetanse', 'kjernekompetanse', 'ferdigheter', 'ky nang']) },
+  ];
+  const localizedMatches = additionalSections
+    .filter(section => section.re.test(headingBlob))
+    .map(section => section.name)
+    .join(' ');
+  score += applySectionScore(`${headingBlob} ${localizedMatches}`,
+    (severity, message) => add('section-headings', severity, message));
 
   // 3. Contact info reachable in the body. We strip only *semantic* <header>/
   // <footer> elements: those map to the PDF page header/footer regions ATS
@@ -617,12 +712,12 @@ function auditAts(html, opts = {}) {
   if (emailInBody) {
     score += 10;
   } else if (hasEmail) {
-    add('critical', 'Contact email appears only inside a semantic <header>/<footer> element; ATS routinely drop those regions, so the address is effectively unreachable. Move contact details into the main document body.');
+    add('email-in-header-footer', 'critical', 'Contact email appears only inside a semantic <header>/<footer> element; ATS routinely drop those regions, so the address is effectively unreachable. Move contact details into the main document body.');
   } else {
-    add('critical', 'No email address found. ATS and recruiters need a parseable contact email in the body of the CV.');
+    add('email-missing', 'critical', 'No email address found. ATS and recruiters need a parseable contact email in the body of the CV.');
   }
   if (hasPhone) score += 5;
-  else add('info', 'No phone number detected (optional, but many ATS intake forms expect one).');
+  else add('phone-missing', 'info', 'No phone number detected (optional, but many ATS intake forms expect one).');
 
   // 4. Single-column, no layout tables. `display:table` on a single element does
   // not reorder content, so it is deliberately NOT flagged (the template's
@@ -634,15 +729,15 @@ function auditAts(html, opts = {}) {
     + inlineStyles.filter(s => /position\s*:\s*absolute/i.test(s)).length;
   if (tableTags > 0) {
     layout -= 12;
-    add('critical', `Found ${tableTags} <table> element(s). Table-based layouts scramble the reading order ATS extractors follow; use a single-column flow.`);
+    add('layout-tables', 'critical', `Found ${tableTags} <table> element(s). Table-based layouts scramble the reading order ATS extractors follow; use a single-column flow.`);
   }
   if (multiColumn) {
     layout -= 8;
-    add('warning', 'CSS multi-column layout detected (column-count/columns). Single-column content parses most reliably.');
+    add('multi-column', 'warning', 'CSS multi-column layout detected (column-count/columns). Single-column content parses most reliably.');
   }
   if (absPos > 0) {
     layout -= 4;
-    add('warning', `Found ${absPos} absolutely-positioned element(s); absolute positioning can break ATS reading order.`);
+    add('absolute-positioning', 'warning', `Found ${absPos} absolutely-positioned element(s); absolute positioning can break ATS reading order.`);
   }
   score += Math.max(0, layout);
 
@@ -657,10 +752,10 @@ function auditAts(html, opts = {}) {
   const contentImgs = imgs.filter(tag => !/class\s*=\s*(?:"[^"]*\bcv-photo\b[^"]*"|'[^']*\bcv-photo\b[^']*')/i.test(tag));
   if (contentImgs.length > 0 && text.length < TEXT_LOW_WITH_IMG) {
     imageScore = 0;
-    add('critical', `Found ${contentImgs.length} content image(s) with little surrounding text (${text.length} chars). Text baked into images is invisible to ATS.`);
+    add('images-text-baked', 'critical', `Found ${contentImgs.length} content image(s) with little surrounding text (${text.length} chars). Text baked into images is invisible to ATS.`);
   } else if (contentImgs.length > 0) {
     imageScore -= 5;
-    add('warning', `Found ${contentImgs.length} non-photo image(s). Ensure no CV text (skills, headings, contact) is baked into images — ATS cannot read image text.`);
+    add('images-non-photo', 'warning', `Found ${contentImgs.length} non-photo image(s). Ensure no CV text (skills, headings, contact) is baked into images — ATS cannot read image text.`);
   }
   score += Math.max(0, imageScore);
 
@@ -679,14 +774,14 @@ function auditAts(html, opts = {}) {
     score += WEIGHTS.fonts;
   } else {
     score += Math.max(0, WEIGHTS.fonts - unsafeFonts.length * 3);
-    add('warning', `Non-standard font(s): ${unsafeFonts.map(describeFontName).join(', ')}. Prefer widely-supported, embeddable fonts (Arial, Helvetica, Calibri, Times New Roman, Georgia) for reliable ATS text extraction.`);
+    add('fonts', 'warning', `Non-standard font(s): ${unsafeFonts.map(describeFontName).join(', ')}. Prefer widely-supported, embeddable fonts (Arial, Helvetica, Calibri, Times New Roman, Georgia) for reliable ATS text extraction.`);
   }
 
   // 7. UTF-8 declared.
   if (/<meta[^>]*charset\s*=\s*["']?\s*utf-8/i.test(html)) {
     score += WEIGHTS.charset;
   } else {
-    add('warning', 'No <meta charset="utf-8"> declared. Declare UTF-8 so accented characters and symbols survive ATS text extraction.');
+    add('charset', 'warning', 'No <meta charset="utf-8"> declared. Declare UTF-8 so accented characters and symbols survive ATS text extraction.');
   }
 
   // 8. No hidden text / keyword stuffing. display:none / visibility:hidden /
@@ -719,7 +814,7 @@ function auditAts(html, opts = {}) {
   if (hiddenSignals.length === 0) {
     score += WEIGHTS.hidden;
   } else {
-    add('warning', `Possible hidden text / keyword stuffing (${hiddenSignals.join(', ')}). Hidden keywords are penalised by modern ATS and by recruiters who read the extracted text.`);
+    add('hidden-text', 'warning', `Possible hidden text / keyword stuffing (${hiddenSignals.join(', ')}). Hidden keywords are penalised by modern ATS and by recruiters who read the extracted text.`);
   }
 
   const keywordCoverage = keywordCoverageFor(text, opts);
@@ -967,6 +1062,7 @@ export {
   auditAts,
   auditAtsPlain,
   auditAtsFromPath,
+  CHECK_SCOPE,
   gradeFor,
   isPass,
   normalizeKeywords,
@@ -1056,6 +1152,7 @@ function runSelfTest() {
       pl: ['Doświadczenie zawodowe', 'Wykształcenie', 'Umiejętności'],
       tr: ['İş deneyimi', 'Eğitim', 'Beceriler'],
       da: ['Erhvervserfaring', 'Uddannelse', 'Kompetencer'],
+      nb: ['Arbeidserfaring', 'Utdanning', 'Kompetanse'],
       id: ['Pengalaman kerja', 'Pendidikan', 'Keahlian'],
       ja: ['職務経歴', '学歴', 'スキル'],
       ko: ['경력', '학력', '역량'],
@@ -1065,6 +1162,7 @@ function runSelfTest() {
       hi: ['करियर इतिहास', 'शिक्षा', 'कौशल'],
       zh: ['工作经历', '教育背景', '技能'],
       'zh-TW': ['工作經歷', '學歷', '專業技能'],
+      vi: ['Kinh nghiệm làm việc', 'Học vấn', 'Kỹ năng'],
     };
     const failing = Object.entries(localized)
       .filter(([, [exp, edu, skl]]) => {
@@ -1097,7 +1195,7 @@ function runSelfTest() {
     check(`"${heading}" does not pass for Education`, hasIssue(noEdu.issues, 'missing standard section'));
   }
   // ...while the compounds that put the key word last are still recognized.
-  for (const heading of ['Berufserfahrung', 'Werkervaring', 'Erhvervserfaring']) {
+  for (const heading of ['Berufserfahrung', 'Werkervaring', 'Erhvervserfaring', 'Arbeidserfaring', 'Yrkeserfaring']) {
     const compound = auditAts(buildCleanHtml({ experience: `<div class="section"><div class="section-title">${heading}</div><p>Senior Engineer, Acme, 2019 - 2024.</p></div>` }));
     check(`compound heading "${heading}" is recognized for Experience`, !hasIssue(compound.issues, 'missing standard section'));
   }

@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 import { readJsonObject } from "@/lib/json-body";
+<<<<<<< HEAD
 import { keywordsInText, loadStudio, renderEditedPdf, saveEdits, WORD_CV_MESSAGE } from "@/lib/cv-studio/server";
+=======
+import { keywordsInText, loadStudio, missingDataFolderMessage, renderEditedPdf, saveEdits } from "@/lib/cv-studio/server";
+>>>>>>> career-ops-v1.40.0
 import { acquireTrackerWrite, releaseTrackerWrite } from "@/lib/core/run-registry";
 import { parseEdits } from "@/lib/cv-studio/studio.mjs";
+import { createPutOrder } from "@/lib/cv-studio/put-order.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,8 +24,11 @@ function studioError(reason: keyof typeof NOT_FOUND) {
 }
 
 const saving = new Set<string>();
+const putOrder = createPutOrder();
 
 export async function GET(_req: Request, { params }: RouteContext) {
+  const missing = missingDataFolderMessage();
+  if (missing) return NextResponse.json({ error: missing }, { status: 400 });
   const load = await loadStudio((await params).n);
   if (!load.ok) return studioError(load.reason);
   return NextResponse.json(load);
@@ -29,21 +37,27 @@ export async function GET(_req: Request, { params }: RouteContext) {
 // Autosave. The edits are re-parsed against the current tailored HTML, so a
 // tab left open across a regeneration cannot write edits for the old CV.
 export async function PUT(req: Request, { params }: RouteContext) {
-  const body = await readJsonObject<{ edits?: unknown }>(req);
+  const body = await readJsonObject<{ edits?: unknown; tab?: unknown; rev?: unknown }>(req);
   if (!body) return NextResponse.json({ error: "bad json" }, { status: 400 });
+  const missing = missingDataFolderMessage();
+  if (missing) return NextResponse.json({ error: missing }, { status: 400 });
   const load = await loadStudio((await params).n);
   if (!load.ok) return studioError(load.reason);
   const parsed = parseEdits(body.edits, load.doc.sourceHash);
   if (!parsed) return NextResponse.json({ error: "edits required" }, { status: 400 });
   if (parsed.stale) return NextResponse.json({ error: "stale" }, { status: 409 });
+  // No await between this check and the write, so a newer PUT cannot land in between.
+  if (!putOrder.accept(load.reportNum, body.tab, body.rev)) return NextResponse.json({ ok: true, superseded: true });
   saveEdits(load.reportNum, parsed.edits);
   return NextResponse.json({ ok: true });
 }
 
 export async function POST(req: Request, { params }: RouteContext) {
   const n = (await params).n;
-  const body = await readJsonObject<{ op?: string; edits?: unknown; text?: unknown }>(req);
+  const body = await readJsonObject<{ op?: string; edits?: unknown; text?: unknown; tab?: unknown; rev?: unknown }>(req);
   if (!body) return NextResponse.json({ error: "bad json" }, { status: 400 });
+  const missing = missingDataFolderMessage();
+  if (missing) return NextResponse.json({ error: missing }, { status: 400 });
   if (body.op === "keywords") {
     if (typeof body.text !== "string" || body.text.length > 2000) return NextResponse.json({ error: "text required" }, { status: 400 });
     const keywords = await keywordsInText(n, body.text);
@@ -59,6 +73,8 @@ export async function POST(req: Request, { params }: RouteContext) {
   saving.add(load.reportNum);
   const token = acquireTrackerWrite();
   try {
+    // Same order as PUT. An older Save for apply must not land after the page-exit write.
+    if (!putOrder.accept(load.reportNum, body.tab, body.rev)) return NextResponse.json({ ok: true, superseded: true });
     saveEdits(load.reportNum, parsed.edits);
     const result = await renderEditedPdf(load, parsed.edits);
     return result.ok ? NextResponse.json(result) : NextResponse.json({ error: result.error.slice(0, 600) }, { status: 422 });
