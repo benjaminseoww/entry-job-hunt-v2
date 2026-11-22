@@ -10,6 +10,104 @@
 
 set -euo pipefail
 
+# Built at runtime so this file never contains a git-grep-able conflict marker.
+marker_start="$(printf '%.0s<' {1..7})"
+marker_end="$(printf '%.0s>' {1..7})"
+marker_mid="$(printf '%.0s=' {1..7})"
+conflict_head="${marker_start} HEAD"
+
+restore_pre_agent() {
+  cp "$RUNNER_TEMP/index.before" "$GIT_INDEX"
+  rsync -a --delete --exclude '.git' "$RUNNER_TEMP/pre-agent/" ./
+}
+
+overlay_agent_files() {
+  local file
+  while IFS= read -r file; do
+    [ -n "$file" ] || continue
+    mkdir -p "$(dirname "$file")"
+    cp -a "$RUNNER_TEMP/agent-files/$file" "$file"
+  done < "$RUNNER_TEMP/conflicts-after.txt"
+  git add --pathspec-from-file="$RUNNER_TEMP/conflicts-after.txt"
+}
+
+save_agent_files() {
+  local file
+  rm -rf "$RUNNER_TEMP/agent-files"
+  mkdir -p "$RUNNER_TEMP/agent-files"
+  while IFS= read -r file; do
+    [ -n "$file" ] || continue
+    mkdir -p "$RUNNER_TEMP/agent-files/$(dirname "$file")"
+    cp -a "$file" "$RUNNER_TEMP/agent-files/$file"
+  done < "$RUNNER_TEMP/conflicts-after.txt"
+}
+
+agent_left_markers() {
+  local file
+  while IFS= read -r file; do
+    [ -n "$file" ] || continue
+    if grep -q -E "^(${marker_start}|${marker_mid}|${marker_end})" "$RUNNER_TEMP/agent-files/$file"; then
+      return 0
+    fi
+  done < "$RUNNER_TEMP/conflicts-after.txt"
+  return 1
+}
+
+worktree_matches_pre_agent() {
+  diff -qr --exclude '.git' "$RUNNER_TEMP/pre-agent" . >/dev/null || return 1
+  return 0
+}
+
+# Fail if Copilot left edits outside the conflict list after restore+overlay.
+unexpected_agent_paths() {
+  local pre="$RUNNER_TEMP/pre-agent"
+  local rel abs
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    [ "$rel" = "." ] && continue
+    if [ ! -e "$pre/$rel" ] && [ ! -L "$pre/$rel" ]; then
+      if ! grep -qxF "$rel" "$RUNNER_TEMP/conflicts-after.txt"; then
+        printf '%s\n' "$rel"
+      fi
+    fi
+  done < <(find . -path './.git' -prune -o \( \( -type f -o -type l \) -o -type d -empty \) -print | sed 's|^\./||')
+  while IFS= read -r abs; do
+    rel="${abs#"$pre"/}"
+    [ "$rel" = "$abs" ] && continue
+    if grep -qxF "$rel" "$RUNNER_TEMP/conflicts-after.txt"; then
+      continue
+    fi
+    if { [ ! -e "$rel" ] && [ ! -L "$rel" ]; } || ! cmp -s "$pre/$rel" "$rel" 2>/dev/null; then
+      if [ -L "$pre/$rel" ] || [ -L "$rel" ]; then
+        if [ "$(readlink "$pre/$rel" 2>/dev/null || true)" = "$(readlink "$rel" 2>/dev/null || true)" ]; then
+          continue
+        fi
+        printf '%s\n' "$rel"
+        continue
+      fi
+      if [ -d "$pre/$rel" ] && [ -d "$rel" ]; then
+        continue
+      fi
+      printf '%s\n' "$rel"
+    fi
+  done < <(find "$pre" \( \( -type f -o -type l \) -o -type d -empty \) -print)
+}
+
+assert_only_conflicted_files_differ_from_pre_agent() {
+  local unexpected
+  unexpected="$(unexpected_agent_paths | sort -u)"
+  if [ -n "$unexpected" ]; then
+    echo "Copilot changed files that were not in the conflict list:" >&2
+    printf '%s\n' "$unexpected" >&2
+    exit 1
+  fi
+}
+
+# Sourced by tests: helpers are defined; do not run the merge.
+if [ "${BASH_SOURCE[0]}" != "${0}" ]; then
+  return 0
+fi
+
 # Copilot can rewrite this file while bash is still reading it. Parse the body
 # first so a later edit cannot shift the rest of the run.
 main() {
@@ -26,11 +124,6 @@ fi
 : "${RUNNER_TEMP:?}"
 : "${FORK_BRANCH:?}"
 : "${UPSTREAM_REPO:?}"
-
-# Build markers at runtime: Copilot greps for them and treated this script as a conflict.
-marker_start="$(printf '%.0s<' {1..7})"
-marker_end="$(printf '%.0s>' {1..7})"
-conflict_head="${marker_start} HEAD"
 
 # Scope the bot identity to this process. Do not write user.name / user.email
 # into git config — that persists in the repo and later local commits (including
@@ -126,81 +219,6 @@ GIT_INDEX="$(git rev-parse --git-path index)"
 cp "$GIT_INDEX" "$RUNNER_TEMP/index.before"
 mkdir -p "$RUNNER_TEMP/pre-agent"
 rsync -a --exclude '.git' ./ "$RUNNER_TEMP/pre-agent/"
-
-restore_pre_agent() {
-  cp "$RUNNER_TEMP/index.before" "$GIT_INDEX"
-  rsync -a --delete --exclude '.git' "$RUNNER_TEMP/pre-agent/" ./
-}
-
-overlay_agent_files() {
-  local file
-  while IFS= read -r file; do
-    [ -n "$file" ] || continue
-    mkdir -p "$(dirname "$file")"
-    cp "$RUNNER_TEMP/agent-files/$file" "$file"
-  done < "$RUNNER_TEMP/conflicts-after.txt"
-  git add --pathspec-from-file="$RUNNER_TEMP/conflicts-after.txt"
-}
-
-save_agent_files() {
-  local file
-  rm -rf "$RUNNER_TEMP/agent-files"
-  mkdir -p "$RUNNER_TEMP/agent-files"
-  while IFS= read -r file; do
-    [ -n "$file" ] || continue
-    mkdir -p "$RUNNER_TEMP/agent-files/$(dirname "$file")"
-    cp "$file" "$RUNNER_TEMP/agent-files/$file"
-  done < "$RUNNER_TEMP/conflicts-after.txt"
-}
-
-agent_left_markers() {
-  local file
-  while IFS= read -r file; do
-    [ -n "$file" ] || continue
-    if grep -q -E "^(${marker_start}|${marker_end}) " "$RUNNER_TEMP/agent-files/$file"; then
-      return 0
-    fi
-  done < "$RUNNER_TEMP/conflicts-after.txt"
-  return 1
-}
-
-worktree_matches_pre_agent() {
-  diff -qr --exclude '.git' "$RUNNER_TEMP/pre-agent" . >/dev/null || return 1
-  return 0
-}
-
-# Fail if Copilot left edits outside the conflict list after restore+overlay.
-unexpected_agent_paths() {
-  local pre="$RUNNER_TEMP/pre-agent"
-  local rel abs
-  while IFS= read -r rel; do
-    [ -n "$rel" ] || continue
-    if [ ! -f "$pre/$rel" ]; then
-      if ! grep -qxF "$rel" "$RUNNER_TEMP/conflicts-after.txt"; then
-        printf '%s\n' "$rel"
-      fi
-    fi
-  done < <(find . -path './.git' -prune -o -type f -print | sed 's|^\./||')
-  while IFS= read -r abs; do
-    rel="${abs#"$pre"/}"
-    if grep -qxF "$rel" "$RUNNER_TEMP/conflicts-after.txt"; then
-      continue
-    fi
-    if [ ! -f "$rel" ] || ! cmp -s "$pre/$rel" "$rel"; then
-      printf '%s\n' "$rel"
-    fi
-  done < <(find "$pre" -type f -print)
-}
-
-assert_only_conflicted_files_differ_from_pre_agent() {
-  local unexpected
-  unexpected="$(unexpected_agent_paths | sort -u)"
-  if [ -n "$unexpected" ]; then
-    echo "Copilot changed files that were not in the conflict list:" >&2
-    printf '%s\n' "$unexpected" >&2
-    exit 1
-  fi
-}
 
 disposition=not-run
 report=""

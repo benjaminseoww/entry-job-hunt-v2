@@ -704,7 +704,7 @@ func (m PipelineModel) handleKey(msg tea.KeyMsg) (PipelineModel, tea.Cmd) {
 				if len(candidates) > 0 && data.WordCV(candidates[0], "") {
 					m.flash = "No index row for this Word CV — regenerate it with /career-ops docx (unindexed files are left alone)"
 				} else {
-					m.flash = "No source HTML found for this application — run /career-ops pdf first"
+					m.flash = "No source CV found for this application — run /career-ops pdf or /career-ops docx first"
 				}
 				return m, nil
 			}
@@ -712,7 +712,7 @@ func (m PipelineModel) handleKey(msg tea.KeyMsg) (PipelineModel, tea.Cmd) {
 				if data.WordCV(entry.PDFPath, entry.HTMLPath) {
 					m.flash = "No source markdown found for this application — run /career-ops docx first"
 				} else {
-					m.flash = "No source HTML found for this application — run /career-ops pdf first"
+					m.flash = "No source CV found for this application — run /career-ops pdf or /career-ops docx first"
 				}
 				return m, nil
 			}

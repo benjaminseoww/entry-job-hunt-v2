@@ -32,7 +32,7 @@
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, realpathSync, renameSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, extname, join, resolve, sep } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { flagValue, hasFlag, validateFlags } from './lib/cli-flags.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
@@ -89,6 +89,21 @@ function nearestRealAncestor(p) {
   let dir = resolve(p);
   while (!existsSync(dir) && dirname(dir) !== dir) dir = dirname(dir);
   return realOrSelf(dir);
+}
+
+function insideWorkspace(absPath, workspaceRoot) {
+  const workspace = realNative(workspaceRoot);
+  let probe = resolve(absPath);
+  const tail = [];
+  while (!existsSync(probe)) {
+    tail.unshift(basename(probe));
+    const parent = dirname(probe);
+    if (parent === probe) break;
+    probe = parent;
+  }
+  const canonical = existsSync(probe) ? resolve(realNative(probe), ...tail) : probe;
+  const rel = relative(workspace, canonical);
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
 }
 
 function sleepSync(ms) {
@@ -282,6 +297,12 @@ async function main() {
       return;
     }
     companionPath = resolve(raw);
+    const workspaceRoot = resolveWorkspaceRootFor(getCareerOpsRoot());
+    if (!insideWorkspace(companionPath, workspaceRoot)) {
+      console.error(`generate-docx: --companion must be a path inside the workspace: ${raw}`);
+      process.exitCode = 1;
+      return;
+    }
   }
   let result = generateDocx({ input: positional[0], output: positional[1], template, skipFactCheck });
   if (result.factCheck?.verdict === 'skipped') {

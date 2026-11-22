@@ -127,6 +127,24 @@ test('--companion records the given .md in the html column, not the input', () =
   });
 });
 
+test('--companion outside the workspace is rejected', () => {
+  withWorkspace(({ root, env }) => {
+    const input = join(root, 'output', 'scratch.md');
+    const output = join(root, 'output', 'cv.docx');
+    const outside = join(tmpdir(), `docx-companion-outside-${process.pid}.md`);
+    writeFileSync(input, MD);
+    writeFileSync(outside, '# leak\n');
+    try {
+      const r = run(root, env, [input, output, '--report=7', `--companion=${outside}`, '--json']);
+      assert.notEqual(r.status, 0);
+      assert.match(r.stderr, /inside the workspace/);
+      assert.equal(existsSync(join(root, 'data', 'pdf-index.tsv')), false);
+    } finally {
+      rmSync(outside, { force: true });
+    }
+  });
+});
+
 test('--report still prints JSON when the index write fails', () => {
   withWorkspace(({ root, env }) => {
     const input = join(root, 'output', 'cv.md');
