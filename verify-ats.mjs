@@ -563,6 +563,7 @@ const REQUIRED_SECTIONS = [
     'deneyim',                                           // tr
     'erhvervserfaring', 'karriereforlob',                // da
     'riwayat karier', 'pengalaman',                      // id
+    'career history',
     'parcours professionnel',                            // fr
     'trayectoria', 'trajetoria',                         // es pt
     'percorso professionale',                            // it
@@ -615,6 +616,7 @@ const BONUS_SECTION_RES = [/professional summary|summary|profile|objective/, /pr
 const HEADING_QUALIFIERS = new Set([
   'professional', 'relevant', 'core', 'key', 'technical', 'additional',
   'career', 'work', 'personal', 'academic',
+  'summary', 'history', 'stack', '스택',
 ]);
 
 function applySectionScore(headingBlob, add) {

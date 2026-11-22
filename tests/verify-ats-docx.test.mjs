@@ -142,6 +142,11 @@ test('markdown ATX headings and Word uppercase titles are both recognized', () =
   assert.equal(body.some((h) => h.includes('experience')), false);
   const mdCaps = extractPlainHeadings('WORK EXPERIENCE\nStaff Engineer\nEDUCATION\nSKILLS\n', { kind: 'md' });
   assert.equal(mdCaps.some((h) => h.includes('work experience')), false);
+  // Remainder after the section term: Skills Summary, Career History, 기술 스택.
+  const remainder = extractPlainHeadings('Skills Summary\nCareer History\n기술 스택\n', { kind: 'docx' });
+  assert.ok(remainder.some((h) => h.includes('skills summary')));
+  assert.ok(remainder.some((h) => h.includes('career history')));
+  assert.ok(remainder.some((h) => h.includes('기술 스택')));
 });
 
 test('node verify-ats.mjs on a .md fixture scores text checks and lists n/a checks', () => {
@@ -733,6 +738,7 @@ test('webHidden, near-white, themeColor, highlight, and styles.xml hidden runs a
       `<w:p><w:r><w:rPr><w:webHidden/></w:rPr><w:t>zzqwebhidden</w:t></w:r></w:p>`,
       `<w:p><w:r><w:rPr><w:color w:val="F8F8F8"/></w:rPr><w:t>zzqnearwhite</w:t></w:r></w:p>`,
       `<w:p><w:r><w:rPr><w:color w:themeColor="background1"/></w:rPr><w:t>zzqtheme</w:t></w:r></w:p>`,
+      `<w:p><w:r><w:rPr><w:color w:themeColor="lt1" w:val="000000"/></w:rPr><w:t>zzqblacktheme</w:t></w:r></w:p>`,
       `<w:p><w:r><w:rPr><w:highlight w:val="white"/></w:rPr><w:t>zzqhighlight</w:t></w:r></w:p>`,
       `<w:p><w:r><w:rPr><w:rStyle w:val="HiddenRun"/></w:rPr><w:t>zzqstylerust</w:t></w:r></w:p>`,
     ].join('');
@@ -746,6 +752,7 @@ test('webHidden, near-white, themeColor, highlight, and styles.xml hidden runs a
     assert.equal(parts.bodyVisible.includes('zzqwebhidden'), false);
     assert.equal(parts.bodyVisible.includes('zzqnearwhite'), false);
     assert.equal(parts.bodyVisible.includes('zzqtheme'), false);
+    assert.equal(parts.bodyVisible.includes('zzqblacktheme'), true);
     assert.equal(parts.bodyVisible.includes('zzqhighlight'), false);
     assert.equal(parts.bodyVisible.includes('zzqstylerust'), false);
     assert.ok(parts.hiddenSignals.includes('w:webHidden'));

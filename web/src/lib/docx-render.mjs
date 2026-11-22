@@ -7,6 +7,47 @@ import { getProfilePath } from "./core/profile-path.mjs";
 import { slugify } from "./pdf-paths.mjs";
 import { markTrackerReady } from "./pdf-render.mjs";
 
+const liveScratch = new Set();
+const liveChildren = new Set();
+let processCleanupHooked = false;
+
+function hookProcessCleanup() {
+  if (processCleanupHooked) return;
+  processCleanupHooked = true;
+  const sweep = () => {
+    for (const child of liveChildren) {
+      try { child.kill("SIGTERM"); } catch { /* already gone */ }
+    }
+    for (const scratch of liveScratch) {
+      try { fs.rmSync(scratch, { force: true }); } catch { /* already gone */ }
+    }
+    liveChildren.clear();
+    liveScratch.clear();
+  };
+  process.once("exit", sweep);
+  // A signal listener suppresses default exit, so re-raise when we're the only handler.
+  for (const signal of ["SIGTERM", "SIGINT"]) {
+    const onSignal = () => {
+      sweep();
+      if (process.listenerCount(signal) <= 1) {
+        process.removeListener(signal, onSignal);
+        process.kill(process.pid, signal);
+      }
+    };
+    process.on(signal, onSignal);
+  }
+}
+
+function trackScratch(scratch) {
+  if (!scratch) return;
+  hookProcessCleanup();
+  liveScratch.add(scratch);
+}
+
+function untrackScratch(scratch) {
+  if (scratch) liveScratch.delete(scratch);
+}
+
 /** @typedef {{ reportNum: string, reportFile: string, md: string, scratchMd: string, finalDocx: string }} DocxPaths */
 export function resolveDocxPaths(input, today, root, findReportFile) {
   if (!/^\d+$/.test(input)) {
@@ -35,6 +76,8 @@ export function resolveDocxPaths(input, today, root, findReportFile) {
   const scratchDir = path.join(root, ".career-ops-web", "pdf-tmp");
   fs.mkdirSync(path.join(root, "output"), { recursive: true });
   fs.mkdirSync(scratchDir, { recursive: true });
+  // Unique scratch per run so concurrent generations cannot clobber intermediates.
+  // Same-report same-day destinations still last-writer-wins via atomic rename.
   const runId = randomBytes(8).toString("hex");
   return {
     ok: true,
@@ -62,10 +105,14 @@ export function docxRunOutcome({ envelope, noOutputMessage, sawError, cleanExit,
 
 /** Write scratch only — a blocked fact gate must not overwrite a verified companion. @returns {{ok: true}|{ok: false, error: string}} */
 export function writeCvMarkdown({ docxPaths, markdown }) {
-  const dest = docxPaths.scratchMd ?? docxPaths.md;
+  const dest = docxPaths.scratchMd;
+  if (!dest) return { ok: false, error: "scratchMd is required" };
   try {
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.writeFileSync(dest, markdown, "utf8");
+    const fd = fs.openSync(dest, "r+");
+    try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    trackScratch(dest);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: `Could not save the tailored CV to ${err.path ?? dest}: ${err.message}` };
@@ -88,6 +135,7 @@ export function promoteScratchMarkdown(scratch, dest, warnings) {
 /** Remove this run's scratch whether the render succeeded or not. */
 export function cleanupDocxScratch(scratch) {
   if (!scratch) return;
+  untrackScratch(scratch);
   try {
     fs.rmSync(scratch, { force: true });
   } catch (err) {
@@ -99,16 +147,25 @@ export function spawnGenerateDocx({ spawnFn, execPath, root, coreRoot = root, da
   return new Promise((resolve) => {
     const args = [path.join(coreRoot, "generate-docx.mjs"), md, finalDocx, `--report=${reportNum}`];
     if (companion) args.push(`--companion=${companion}`);
+    hookProcessCleanup();
     const child = spawnFn(execPath, args, {
       cwd: coreRoot,
       windowsHide: true,
       ...(dataRoot && dataRoot !== coreRoot ? { env: { ...process.env, CAREER_OPS_ROOT: dataRoot } } : {}),
     });
+    liveChildren.add(child);
+    const done = () => liveChildren.delete(child);
     let stderr = "";
     child.stdout?.on?.("data", () => {});
     child.stderr.on("data", (d) => { stderr += d.toString(); });
-    child.on("close", (code) => resolve({ ok: code === 0, stderr: stderr.trim() }));
-    child.on("error", (e) => resolve({ ok: false, stderr: `Word rendering failed to start: ${e.message}` }));
+    child.on("close", (code) => {
+      done();
+      resolve({ ok: code === 0, stderr: stderr.trim() });
+    });
+    child.on("error", (e) => {
+      done();
+      resolve({ ok: false, stderr: `Word rendering failed to start: ${e.message}` });
+    });
   });
 }
 
@@ -116,6 +173,10 @@ export function spawnGenerateDocx({ spawnFn, execPath, root, coreRoot = root, da
 export async function renderAndMarkDocx({ spawnFn, execPath, root, coreRoot = root, dataRoot = root, docxPaths, reportNum }) {
   const warnings = [];
   const scratch = docxPaths.scratchMd;
+  if (!scratch) {
+    return { kind: "render-failed", error: "scratchMd is required" };
+  }
+  trackScratch(scratch);
   try {
     const render = await spawnGenerateDocx({
       spawnFn,
@@ -123,7 +184,7 @@ export async function renderAndMarkDocx({ spawnFn, execPath, root, coreRoot = ro
       root,
       coreRoot,
       dataRoot,
-      md: scratch ?? docxPaths.md,
+      md: scratch,
       finalDocx: docxPaths.finalDocx,
       reportNum,
       companion: docxPaths.md,
@@ -131,7 +192,7 @@ export async function renderAndMarkDocx({ spawnFn, execPath, root, coreRoot = ro
     if (!render.ok) {
       return { kind: "render-failed", error: render.stderr || "Word rendering failed." };
     }
-    if (scratch) promoteScratchMarkdown(scratch, docxPaths.md, warnings);
+    promoteScratchMarkdown(scratch, docxPaths.md, warnings);
     for (const line of render.stderr.split("\n")) {
       const text = line.trim();
       if (text) warnings.push(text);

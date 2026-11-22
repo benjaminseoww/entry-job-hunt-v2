@@ -113,7 +113,7 @@ On `.md` / `.markdown` / `.txt`, the last five rows (layout, images, fonts, char
 
 On `.docx`, layout, images, and hidden text **are scored** from the document-body XML (`w:tbl`, text boxes, `w:cols`, `w:drawing`/`w:pict`, `w:vanish` / `w:specVanish` / `w:webHidden`, white / near-white / `themeColor` `lt1`/`bg1`, tiny font, white `w:highlight`, and the same properties when they live on a style in `word/styles.xml`). Header/footer/notes tables, logos, and white-on-dark names are ignored. Fonts and charset stay **n/a for Word** and are awarded in full. The HTML path is unchanged.
 
-**Known Word hidden-text limits.** Theme `lumMod`/`lumOff` tints, non-white highlights, and revision markup are not treated as hidden. Unstyled two-character CJK/Hangul section titles (학력, 学歴, 技能) are recognized by matching the localized term list, not by letter-case.
+**Known Word hidden-text limits.** Theme `lumMod`/`lumOff` tints, non-white highlights, and revision markup are not treated as hidden. A light `themeColor` (`lt1`/`bg1`) with an explicit dark `w:val` (for example `000000`) is not hidden — the RGB wins. Unstyled two-character CJK/Hangul section titles (학력, 学歴, 技能) are recognized by matching the localized term list, not by letter-case. Headings such as "Skills Summary", "Career History", and "기술 스택" count as section titles.
 
 ## Keyword coverage (opt-in, advisory)
 
