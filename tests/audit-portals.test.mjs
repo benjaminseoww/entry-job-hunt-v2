@@ -244,7 +244,12 @@ try {
   } else {
     fail(`unknownProvider bucket drifted: ${JSON.stringify(unclaimed.unknownProvider)}`);
   }
-  const allNames = [...unclaimed.silent, ...unclaimed.handoff, ...unclaimed.unknownProvider].map((e) => e.name);
+  if (Array.isArray(unclaimed.brokenParser) && unclaimed.brokenParser.length === 0) {
+    pass('brokenParser is empty when no local-parser inspect() reports a missing script');
+  } else {
+    fail(`brokenParser bucket drifted: ${JSON.stringify(unclaimed.brokenParser)}`);
+  }
+  const allNames = [...unclaimed.silent, ...unclaimed.handoff, ...unclaimed.unknownProvider, ...(unclaimed.brokenParser || [])].map((e) => e.name);
   if (!allNames.includes('Off Co')) pass('a disabled entry is never reported as unclaimed');
   else fail('disabled entry leaked into the unclaimed buckets');
   // An enabled entry with no `name` can't be labeled in any bucket, so
@@ -267,6 +272,11 @@ try {
     pass('a local-parser entry counts as claimed, matching scan.mjs rather than the audit');
   } else {
     fail(`local-parser entry misreported: ${JSON.stringify(parsed)}`);
+  }
+  if ((parsed.brokenParser || []).length === 0) {
+    pass('a stub local-parser without inspect() does not invent a brokenParser row');
+  } else {
+    fail(`stub parser leaked into brokenParser: ${JSON.stringify(parsed.brokenParser)}`);
   }
 } catch (err) {
   fail(`audit-portals tests could not run: ${err.message}`);

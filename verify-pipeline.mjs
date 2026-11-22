@@ -763,7 +763,7 @@ async function checkPortalsCoverage() {
       // config/plugins.yml is absent.
       const providers = await loadProviders(join(CODE_ROOT, 'providers'));
       await mergeProviderPlugins(providers, { root: CODE_ROOT, dataRoot: CAREER_OPS });
-      const { silent, handoff, unknownProvider } = findUnclaimedEntries(entries, providers);
+      const { silent, handoff, unknownProvider, brokenParser = [] } = findUnclaimedEntries(entries, providers);
 
       // findUnclaimedEntries silently skips an entry with no (or blank) `name` —
       // it can't report what it can't label. Without this, that entry vanishes
@@ -781,11 +781,15 @@ async function checkPortalsCoverage() {
         error(`portals.yml: "${e.name}" sets an unknown provider — ${e.error}. The entry never scans (see providers/ for valid ids)`,
               "correct the provider: value in portals.yml to an id from providers/, or remove the field to auto-detect");
       }
+      for (const e of brokenParser) {
+        error(`portals.yml: "${e.name}" local parser script is ${e.status} — ${e.error}`,
+              "restore the script under scripts/parsers/, or set enabled: false on that portals.yml entry");
+      }
       for (const e of silent) {
         warn(`portals.yml: "${e.name}" is enabled but no provider claims ${e.careers_url || 'its careers_url'} — scan.mjs skips it on every run without naming it (run node audit-portals.mjs)`,
            "run node audit-portals.mjs for the per-entry diagnosis; fix the careers_url or set enabled: false");
       }
-      if (silent.length === 0 && unknownProvider.length === 0 && malformed.length === 0) {
+      if (silent.length === 0 && unknownProvider.length === 0 && brokenParser.length === 0 && malformed.length === 0) {
         const enabled = entries.filter(e => e && e.enabled !== false).length;
         ok(handoff.length > 0
           ? `All ${enabled - handoff.length} scannable portals.yml entries resolve to a provider (${handoff.length} on websearch handoff)`
