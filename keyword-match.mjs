@@ -439,14 +439,42 @@ export function archivedJdText(reportText, root) {
  * @param {string} html - HTML source.
  * @returns {string} Visible text.
  */
+function stripHtmlBlock(text, tagName) {
+  let out = '';
+  const openNeedle = `<${tagName}`;
+  const closeNeedle = `</${tagName}`;
+  const lower = text.toLowerCase();
+  let i = 0;
+  while (i < text.length) {
+    const start = lower.indexOf(openNeedle, i);
+    if (start === -1) { out += text.slice(i); break; }
+    const afterOpen = lower[start + openNeedle.length] ?? '';
+    if (/[a-z0-9_-]/.test(afterOpen)) {
+      out += text.slice(i, start + openNeedle.length);
+      i = start + openNeedle.length;
+      continue;
+    }
+    const openEnd = text.indexOf('>', start + openNeedle.length);
+    if (openEnd === -1) { out += text.slice(i); break; }
+    let close = lower.indexOf(closeNeedle, openEnd + 1);
+    while (close !== -1 && /[a-z0-9_-]/.test(lower[close + closeNeedle.length] ?? '')) {
+      close = lower.indexOf(closeNeedle, close + 1);
+    }
+    if (close === -1) { out += text.slice(i, start) + ' '; break; }
+    const closeEnd = text.indexOf('>', close + closeNeedle.length);
+    out += text.slice(i, start) + ' ';
+    if (closeEnd === -1) break;
+    i = closeEnd + 1;
+  }
+  return out;
+}
+
 export function htmlToText(html) {
-  return String(html || '')
+  let text = String(html || '')
     // Strip comments first so a comment can't shelter a tag from the strips below.
-    .replace(/<!--[\s\S]*?-->/g, ' ')
-    // Match the full opening tag (incl. attributes) before the lazy body, and
-    // tolerate whitespace in the closing tag — a stricter filter CodeQL accepts.
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, ' ')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ');
+  text = stripHtmlBlock(stripHtmlBlock(text, 'script'), 'style');
+  return text
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&lt;/gi, '<')

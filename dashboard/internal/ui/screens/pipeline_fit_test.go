@@ -144,7 +144,7 @@ func TestKeysHelpFitsAndQDoesNotQuit(t *testing.T) {
 	opened, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 	view := opened.View()
 	assertViewFits(t, view, 80, 24)
-	if !strings.Contains(view, "open PDF") || !strings.Contains(view, "top/end") {
+	if !strings.Contains(view, i18n.Current.HelpOpenPDF) || !strings.Contains(view, "top/end") {
 		t.Fatalf("key list is missing bindings the footer cannot fit:\n%s", view)
 	}
 	if !strings.Contains(view, i18n.Current.AppTitle) {

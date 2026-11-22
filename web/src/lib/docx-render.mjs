@@ -95,11 +95,15 @@ export function cleanupDocxScratch(scratch) {
   }
 }
 
-export function spawnGenerateDocx({ spawnFn, execPath, root, md, finalDocx, reportNum, companion }) {
+export function spawnGenerateDocx({ spawnFn, execPath, root, coreRoot = root, dataRoot = root, md, finalDocx, reportNum, companion }) {
   return new Promise((resolve) => {
-    const args = [path.join(root, "generate-docx.mjs"), md, finalDocx, `--report=${reportNum}`];
+    const args = [path.join(coreRoot, "generate-docx.mjs"), md, finalDocx, `--report=${reportNum}`];
     if (companion) args.push(`--companion=${companion}`);
-    const child = spawnFn(execPath, args, { cwd: root });
+    const child = spawnFn(execPath, args, {
+      cwd: coreRoot,
+      windowsHide: true,
+      ...(dataRoot && dataRoot !== coreRoot ? { env: { ...process.env, CAREER_OPS_ROOT: dataRoot } } : {}),
+    });
     let stderr = "";
     child.stdout?.on?.("data", () => {});
     child.stderr.on("data", (d) => { stderr += d.toString(); });
@@ -109,7 +113,7 @@ export function spawnGenerateDocx({ spawnFn, execPath, root, md, finalDocx, repo
 }
 
 /** @returns {Promise<{kind: "render-failed", error: string}|{kind: "rendered", warnings: string[]}>} */
-export async function renderAndMarkDocx({ spawnFn, execPath, root, docxPaths, reportNum }) {
+export async function renderAndMarkDocx({ spawnFn, execPath, root, coreRoot = root, dataRoot = root, docxPaths, reportNum }) {
   const warnings = [];
   const scratch = docxPaths.scratchMd;
   try {
@@ -117,6 +121,8 @@ export async function renderAndMarkDocx({ spawnFn, execPath, root, docxPaths, re
       spawnFn,
       execPath,
       root,
+      coreRoot,
+      dataRoot,
       md: scratch ?? docxPaths.md,
       finalDocx: docxPaths.finalDocx,
       reportNum,
@@ -130,7 +136,7 @@ export async function renderAndMarkDocx({ spawnFn, execPath, root, docxPaths, re
       const text = line.trim();
       if (text) warnings.push(text);
     }
-    const mark = await markTrackerReady({ spawnFn, execPath, root, reportNum });
+    const mark = await markTrackerReady({ spawnFn, execPath, coreRoot, dataRoot, reportNum });
     if (!mark.ok) {
       console.error(`mark-pdf-ready.mjs failed for report #${reportNum}: ${mark.data?.error ?? mark.stderr}`);
       warnings.push(

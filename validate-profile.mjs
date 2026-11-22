@@ -131,9 +131,9 @@ function editDistance(a, b) {
  * @returns {{findings: object[], parsed: object|null}}
  */
 const SPEND_TIERS = new Set(['economy', 'standard', 'premium']);
-// The auto-pipeline routes on an exact "latex" or "text" and sends anything
-// else down the HTML/PDF path, so only html can differ in case or spacing.
-const CV_ROUTED_FORMATS = new Set(['latex', 'text']);
+// The auto-pipeline routes on an exact "latex", "text", or "docx" and sends
+// anything else down the HTML/PDF path, so only html can differ in case or spacing.
+const CV_ROUTED_FORMATS = new Set(['latex', 'text', 'docx']);
 
 function shownValue(value) {
   return typeof value === 'string' ? JSON.stringify(value) : typeof value;
@@ -207,7 +207,7 @@ function checkKnownValues(parsed, findings, file) {
           level: 'error',
           code: 'bad-value',
           key: 'cv.output_format',
-          message: `${file}: cv.output_format is ${shownValue(format)}. Use html, latex, or text, in lowercase with no spaces. Example: output_format: html`,
+          message: `${file}: cv.output_format is ${shownValue(format)}. Use html, latex, text, or docx, in lowercase with no spaces. Example: output_format: html`,
         });
       }
     }
@@ -276,6 +276,8 @@ export function validateProfile(profileText, exampleText, profileLabel = DEFAULT
     }
   }
 
+  checkKnownValues(parsed, findings, profileLabel);
+
   const declaredFormats = declaredOutputFormats(exampleText);
   const cv = parsed.cv;
   const formatValue = cv && typeof cv === 'object' && !Array.isArray(cv)
@@ -283,7 +285,8 @@ export function validateProfile(profileText, exampleText, profileLabel = DEFAULT
     : undefined;
   if (declaredFormats.length > 0 && formatValue != null && formatValue !== '') {
     const value = String(formatValue);
-    if (!declaredFormats.includes(value)) {
+    const isValidHtml = declaredFormats.includes('html') && value.trim().toLowerCase() === 'html';
+    if (!declaredFormats.includes(value) && !isValidHtml) {
       const suggestion = nearestKey(value, declaredFormats);
       findings.push({
         level: 'warn',
@@ -296,7 +299,6 @@ export function validateProfile(profileText, exampleText, profileLabel = DEFAULT
       });
     }
   }
-  checkKnownValues(parsed, findings, profileLabel);
 
   return { parsed, findings };
 }

@@ -193,54 +193,21 @@ export async function POST(req: Request) {
   // (#4034). Only pdf fills a template, so nothing else pays for the lookup.
   // The root is passed, not re-derived: a relative CAREER_OPS_PROFILE resolves
   // against it, and `process.cwd()` here is `<core>/web` (see cv-template.mjs).
-<<<<<<< HEAD
-  const cvTemplate = kind === "pdf" ? await resolveCvTemplate(careerOpsRoot()) : undefined;
-  const prompt = buildPrompt({
-    kind,
-    input,
-    memory: readMemory(),
-    today,
-    postedAt,
-    lang,
-    cvTemplate,
-    reportFile: pdfPaths?.reportFile ?? docxPaths?.reportFile ?? (coverRequest?.ok ? coverRequest.reportFile : undefined),
-    coverBrief: coverRequest?.ok ? coverRequest.brief : undefined,
-    profile: profileRef(careerOpsRoot()),
-  });
-=======
   // The data root goes in too: a template from the core's user layer (#5777) lives
   // there, so it is named relative to the worker's cwd, not the checkout.
   const dataRoot = kind === "pdf" ? careerOpsRoot() : undefined;
->>>>>>> career-ops-v1.40.0
 
   const cvTemplate = dataRoot
     ? await resolveCvTemplate(codeRoot, dataRoot)
     : undefined;
 
-<<<<<<< HEAD
-  // Tracker-mutating runs hold a write token so a row delete can't race their
-  // merge (tracker.mjs delete doesn't yet share a lock with merge-tracker,
-  // see run-registry). evaluate's agent no longer writes; the backend persist
-  // path below still merges the tracker, so the token stays.
-  const writeToken = kind === "evaluate" || isCvWorkerKind(kind) ? acquireTrackerWrite() : null;
-
-  // stdin must reach EOF or the CLI waits on piped input that never comes: Codex's
-  // `exec` blocks reading stdin for additional context, hangs until the kill timer,
-  // and then reports a generic "installed and authenticated?" error that reads as an
-  // auth failure even though the CLI is fully signed in. #1973 fixed that here with
-  // an inline `stdio: ["ignore", …]`; spawnHeadlessCli generalizes the same fix to
-  // every CLI-invoking route (assistant, explore/ai, cv/ingest, the apply planners),
-  // which had the identical bug, and puts it behind one tested helper so it cannot
-  // drift back in on any single call site.
-=======
   const userTemplatesDir = dataRoot
     ? await resolveUserTemplatesDir(codeRoot, dataRoot)
     : undefined;
-  // Hold the tracker guard through evaluation persistence / PDF marking. Build
+  // Hold the tracker guard through evaluation persistence / CV marking. Build
   // the prompt inside the same try so preparation failures release it too. It is
   // taken before the JD prefetch, so a row delete cannot land in that window.
-  const writeToken = kind === "evaluate" || kind === "pdf" ? acquireTrackerWrite() : null;
->>>>>>> career-ops-v1.40.0
+  const writeToken = kind === "evaluate" || isCvWorkerKind(kind) ? acquireTrackerWrite() : null;
   let child;
   let instructionFile: ReturnType<typeof writeEvaluationInstructions> | undefined;
   let spill: ReturnType<typeof spillOversizedPrompt> | undefined;
@@ -277,7 +244,7 @@ export async function POST(req: Request) {
       userTemplatesDir,
       // The worker's cwd is the data root; modes, templates and scripts live in the checkout.
       codeRoot,
-      reportFile: pdfPaths?.reportFile ?? (coverRequest?.ok ? coverRequest.reportFile : undefined),
+      reportFile: pdfPaths?.reportFile ?? docxPaths?.reportFile ?? (coverRequest?.ok ? coverRequest.reportFile : undefined),
       coverBrief: coverRequest?.ok ? coverRequest.brief : undefined,
       profile: profileRef(careerOpsRoot()),
       evaluationInstructions: instructionFile?.reference,
@@ -479,12 +446,8 @@ export async function POST(req: Request) {
       // the stream never idles during the filtered phase. Unknown event types are
       // ignored by the client's switch, so this is safe for older tabs too.
       const sendAgentText = (text: string) => {
-<<<<<<< HEAD
-        const filter = cvFilter ?? docxFilter ?? reportFilter;
-=======
         if (kind === "evaluate") evaluationText += text;
-        const filter = cvFilter ?? reportFilter;
->>>>>>> career-ops-v1.40.0
+        const filter = cvFilter ?? docxFilter ?? reportFilter;
         const visible = filter ? filter.push(text) : text;
         if (visible) send({ type: "text", text: visible });
       };
@@ -642,6 +605,8 @@ export async function POST(req: Request) {
             spawnFn: spawn,
             execPath: process.execPath,
             root: careerOpsRoot(),
+            coreRoot: resolveCodeRoot(process.cwd(), process.env),
+            dataRoot: careerOpsRoot(),
             docxPaths: paths,
             reportNum: paths.reportNum,
           });
@@ -739,7 +704,7 @@ export async function POST(req: Request) {
           const envelope = docxFilter?.result();
           const outcome = docxRunOutcome({
             envelope,
-            noOutputMessage: noOutputError(),
+            noOutputMessage: noOutputMessage(),
             sawError,
             cleanExit,
             hasPaths: docxPaths !== undefined,

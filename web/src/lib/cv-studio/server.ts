@@ -16,14 +16,12 @@ import { buildStudioDoc, emptyEdits, parseEdits, resolveStudio, type StudioDoc, 
 
 const EDITED_SUFFIX = "-edited";
 
-<<<<<<< HEAD
 export const WORD_CV_MESSAGE = "CV Studio does not edit Word CVs yet";
-=======
+
 export function missingDataFolderMessage(): string | null {
   const root = careerOpsRoot();
   return fs.existsSync(root) ? null : dataFolderMissingMessage(root);
 }
->>>>>>> career-ops-v1.40.0
 
 export type StudioLoad =
   | { ok: true; reportNum: string; company: string; file: string; tree: BlockTree; doc: StudioDoc; edits: StudioEdits; stale: boolean; hasBase: boolean }
@@ -95,17 +93,13 @@ export async function loadStudio(n: string): Promise<StudioLoad> {
   if (!/^\d+$/.test(n)) return { ok: false, reason: "no-report" };
   const id = reportIdentity(n);
   if (!id) return { ok: false, reason: "no-report" };
-<<<<<<< HEAD
-  const indexed = await pdfPathStatusForReport(n);
+  // n is the tracker row; the manifest is keyed by report number, and the two
+  // differ once a row is deleted or reports are renumbered (#1733).
+  const indexed = await pdfPathStatusForReport(id.reportNum);
   if (indexed.status === "found" && /\.docx$/i.test(indexed.path)) {
     return { ok: false, reason: "word-cv" };
   }
-  const file = await findTailoredHtml(n, id.slug);
-=======
-  // n is the tracker row; the manifest is keyed by report number, and the two
-  // differ once a row is deleted or reports are renumbered (#1733).
   const file = await findTailoredHtml(id.reportNum, id.slug);
->>>>>>> career-ops-v1.40.0
   if (!file) return { ok: false, reason: "no-tailored-cv" };
 
   const html = fs.readFileSync(file, "utf8");

@@ -3,7 +3,7 @@ name: career-ops
 description: "Open-source AI job search agent -- evaluate offers, generate CVs, scan portals, track applications. Use when the user pastes a job URL or JD, asks to scan portals, generate a CV/PDF, track applications, prepare for interviews, draft outreach/emails, or run any career-ops mode."
 arguments: mode
 user-invocable: true
-argument-hint: "[scan | discover | deep | pdf | ats | text | latex | latex-tex | cover | email | add | expand | eu-swe | oferta | ofertas | apply | triage | batch | tracker | agent-inbox | pipeline | contacto | training | project | interview-prep | interview | master-profile | intake | retro | interview/plan | interview/practice | interview/debrief | interview-redflag | patterns | calibrate | offer-prep | titles | upskill | followup | reply-watch | outcome | update]"
+argument-hint: "[scan | discover | deep | pdf | docx | ats | text | latex | latex-tex | cover | email | add | expand | eu-swe | oferta | ofertas | apply | triage | batch | tracker | agent-inbox | pipeline | contacto | training | project | interview-prep | interview | master-profile | intake | retro | interview/plan | interview/practice | interview/debrief | interview-redflag | patterns | calibrate | offer-prep | titles | upskill | followup | reply-watch | outcome | update]"
 license: MIT
 ---
 
@@ -72,6 +72,7 @@ Determine the mode from `$mode`:
 | `interview/practice` | `interview/practice` |
 | `interview/debrief` | `interview/debrief` |
 | `pdf` | `pdf` |
+| `docx` | `docx` |
 | `ats` | `ats` |
 | `text` | `text` |
 | `latex` | `latex` |
@@ -127,7 +128,7 @@ Inject this directive after loading the mode instructions and before producing a
 
 Hosts that title sessions automatically name them after the invocation, so every evaluation ends up called something like "Career ops LinkedIn job", and a scan keeps its opening title however far it gets. Rename the current session after the posting it handles, and let the title show where a scan or an evaluation has got to.
 
-- **Scope:** progress titles for a scan (`scan`, then `pipeline` on what it found) and for a single evaluation (`auto-pipeline`, `oferta`, a single-URL `pipeline`), as set out below. The other single-posting modes, `pdf`, `apply`, `contacto` and `interview-prep`, rename once to plain `{Role}, {Company}` when they have identified their posting from a JD or report. Skip `batch`, `ofertas`, a `pipeline` run on 2+ URLs that did not follow a scan, and every headless or subagent worker (`-p`, `exec`, subagent): a worker never renames anything; only an interactive session does, and only its own (see **Whose session**). A delegated `scan`, `pipeline` or `apply` hands its counts, or its role and employer, back to the parent for this (see the subagent section under Context Loading).
+- **Scope:** progress titles for a scan (`scan`, then `pipeline` on what it found) and for a single evaluation (`auto-pipeline`, `oferta`, a single-URL `pipeline`), as set out below. The other single-posting modes, `pdf`, `docx`, `apply`, `contacto` and `interview-prep`, rename once to plain `{Role}, {Company}` when they have identified their posting from a JD or report. Skip `batch`, `ofertas`, a `pipeline` run on 2+ URLs that did not follow a scan, and every headless or subagent worker (`-p`, `exec`, subagent): a worker never renames anything; only an interactive session does, and only its own (see **Whose session**). A delegated `scan`, `pipeline` or `apply` hands its counts, or its role and employer, back to the parent for this (see the subagent section under Context Loading).
 - **Whose session:** rename only your own session (`self`, or the host's equivalent), never another session by its id. A session the user can open and talk to counts as interactive even when another session started it, so it titles itself from its own run, and the session that started it leaves that title alone. A subagent or a headless run (`-p`, `exec`) has no session of its own: it returns its values to the session that runs it, as described here.
 - **Single evaluation** (`auto-pipeline`, `oferta`, a single-URL `pipeline`): start as `Career-ops eval (fetching)` while the JD is read. Once the role and employer are known, switch to `{Role}, {Company} (evaluating)`, then `{Role}, {Company} (CV)` if a CV is generated, and end on plain `{Role}, {Company}`. If a gate stops the run (dead posting, blacklist hit, dealbreaker, agency question), end on `{Role}, {Company} (on hold)` until the user answers, or on `Career-ops eval (on hold)` when the role and employer are not known yet.
 - **Scan** (`scan`, then `pipeline` on what it found): start as `Career-ops scan (scanning)` before running the scanner and the search queries. Once candidates are in hand, add a counter of `{remaining}/{found}` and name the stage beside it: `Career-ops scan (checking, 5/15)`, `Career-ops scan (evaluating, 3/15)`. `checking` covers deduplication, liveness, the title and location filters and the pre-screen; `evaluating` starts with the first full evaluation. While 2 or more postings remain, this title stands in for the per-posting titles `auto-pipeline` and `oferta` would set.
@@ -183,6 +184,7 @@ Available commands:
   /career-ops interview/debrief → Post-interview debrief: close gaps, predict next round
   /career-ops interview-redflag → Analyze employer warning signs before joining a company
   /career-ops pdf       → PDF only, ATS-optimized CV
+  /career-ops docx      → Word (.docx) CV from tailored markdown
   /career-ops ats       → ATS-friendliness check of a generated CV (score + fixable issues)
   /career-ops text      → Tailored markdown CV (mirrors cv.md, no PDF)
   /career-ops latex     → Export CV as LaTeX/Overleaf .tex
@@ -228,7 +230,7 @@ Resolve `language.modes_dir` before applying the path shorthand below. With no s
 
 Read the resolved shared context (default `modes/_shared.md`) + `modes/_profile.md` (if exists) + `modes/_custom.md` (if exists) + the resolved selected mode file (default `modes/{mode}.md`). For an A-F evaluation, that selected file is the primary directory's evaluation mode; do not also load an evaluation file from a secondary directory.
 
-Applies to: `auto-pipeline`, `oferta`, `ofertas`, `pdf`, `text`, `contacto`, `apply`, `pipeline`, `scan`, `batch`
+Applies to: `auto-pipeline`, `oferta`, `ofertas`, `pdf`, `docx`, `text`, `contacto`, `apply`, `pipeline`, `scan`, `batch`
 
 ### Standalone modes with profile and custom context
 

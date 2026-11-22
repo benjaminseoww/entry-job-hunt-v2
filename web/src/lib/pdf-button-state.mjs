@@ -12,7 +12,7 @@ import { cvDiskState } from "./cv-disk-state.mjs";
  * @returns {boolean}
  */
 export function pdfJobRefreshesReport(detail, n) {
-  return Boolean(n && detail && detail.kind === "pdf" && detail.input === n);
+  return Boolean(n && detail && (detail.kind === "pdf" || detail.kind === "docx") && detail.input === n);
 }
 
 /**

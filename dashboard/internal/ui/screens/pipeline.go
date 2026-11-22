@@ -54,8 +54,8 @@ type PipelineClipboardResultMsg struct {
 	Err  string
 }
 
-// noPDFFlash is shown by `d` and `y` when no CV PDF matches the application.
-const noPDFFlash = "No CV PDF found for this application — generate one with /career-ops pdf"
+// noPDFFlash is shown by `d` and `y` when no CV matches the application.
+const noPDFFlash = "No CV found for this application — generate one with /career-ops pdf or /career-ops docx"
 
 // PipelineOpenFailedMsg reports that an external open (job URL, manifesto or
 // CV PDF) failed. The dashboard runs under an alt-screen, so the failure has to
@@ -709,7 +709,7 @@ func (m PipelineModel) handleKey(msg tea.KeyMsg) (PipelineModel, tea.Cmd) {
 	case "d":
 		if app, ok := m.CurrentApp(); ok {
 			if rel, found := m.newestPDF(app); !found {
-				m.flash = "No CV found for this application — generate one with /career-ops pdf or /career-ops docx"
+				m.flash = noPDFFlash
 			} else {
 				return m, m.openPDFCmd(rel)
 			}

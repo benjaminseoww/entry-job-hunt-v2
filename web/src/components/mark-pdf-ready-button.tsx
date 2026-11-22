@@ -51,21 +51,6 @@ export function MarkPdfReadyButton({
 
   return (
     <span className="inline-flex flex-col items-start gap-1">
-<<<<<<< HEAD
-      <button
-        type="button"
-        onClick={mark}
-        disabled={busy || done}
-        className={
-          done
-            ? `${PILL} border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400`
-            : `${PILL} border-border text-muted hover:border-brand/40 hover:text-brand`
-        }
-      >
-        {done && <Check className="size-3.5" />}
-        {busy ? "Saving…" : done ? "CV ready" : "Mark CV ready"}
-      </button>
-=======
       {markedWithoutFile ? (
         <span className={`${PILL} border-border text-muted`}>Tracker marked</span>
       ) : (
@@ -80,13 +65,12 @@ export function MarkPdfReadyButton({
           }
         >
           {settled && <Check className="size-3.5" />}
-          {busy ? "Saving…" : settled ? "PDF ready" : saved ? "Tracker marked" : "Mark PDF ready"}
+          {busy ? "Saving…" : settled ? "CV ready" : saved ? "Tracker marked" : "Mark CV ready"}
         </button>
       )}
       {markedWithoutFile && (
         <span className="text-xs text-muted">Generate the tailored CV for this report. Marking the tracker again does not add that file.</span>
       )}
->>>>>>> career-ops-v1.40.0
       {error && <span className="text-xs text-red-500">{error}</span>}
     </span>
   );

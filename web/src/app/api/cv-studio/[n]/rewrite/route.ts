@@ -1,10 +1,6 @@
 import { NextResponse } from "next/server";
 import { readJsonObject } from "@/lib/json-body";
-<<<<<<< HEAD
-import { keywordsInText, loadStudio, unsupportedRewriteClaims, WORD_CV_MESSAGE } from "@/lib/cv-studio/server";
-=======
-import { keywordsInText, loadStudio, missingDataFolderMessage, unsupportedRewriteClaims } from "@/lib/cv-studio/server";
->>>>>>> career-ops-v1.40.0
+import { keywordsInText, loadStudio, missingDataFolderMessage, unsupportedRewriteClaims, WORD_CV_MESSAGE } from "@/lib/cv-studio/server";
 import { runRewrite } from "@/lib/cv-studio/rewrite-run";
 import { buildRewritePrompt, MAX_INSTRUCTION, parseRewrite } from "@/lib/cv-studio/rewrite.mjs";
 

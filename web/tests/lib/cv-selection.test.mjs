@@ -149,5 +149,9 @@ test("pdfIndexCompanionForReport returns the html/md companion for a Word row", 
     path: "output/cv-010.docx",
     html: "output/cv-010.md",
   });
-  assert.deepEqual(pdfIndexEntryForReport(index, 10), { found: true, path: "output/cv-010.docx" });
+  assert.deepEqual(pdfIndexEntryForReport(index, 10), {
+    found: true,
+    path: "output/cv-010.docx",
+    html: "output/cv-010.md",
+  });
 });

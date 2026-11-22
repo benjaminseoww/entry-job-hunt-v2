@@ -6,40 +6,29 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { FileDown, Loader2, FileText, RotateCcw, SlidersHorizontal, TriangleAlert } from "lucide-react";
 import { useJobs } from "@/components/jobs/job-store";
 import { CostBadge } from "@/components/cost/cost-badge";
-<<<<<<< HEAD
-import { pdfButtonState, type PdfFailure } from "@/lib/pdf-button-state.mjs";
-import { isWordCvView } from "@/lib/cv-format.mjs";
-
-// Fires the real career-ops `pdf` mode (worker kind "pdf") to generate an
-// ATS-optimized CV tailored to THIS offer → output/cv-… + marks the tracker.
-// Once a tailored CV exists (tracker PDF ✅, or a pdf worker just finished), it
-// becomes a "View tailored CV" link (served by /api/cv-pdf) + a regenerate icon.
-export function GeneratePdfButton({
-  n,
-  company,
-  pdfReady,
-  outputFormat = "pdf",
-  cvIsWord = false,
-}: {
-  n: string;
-  company: string;
-  pdfReady: boolean;
-  outputFormat?: "pdf" | "docx";
-  cvIsWord?: boolean;
-}) {
-  const { jobs, startJob } = useJobs();
-  const kind = outputFormat === "docx" ? "docx" : "pdf";
-=======
 import { CvPdfFileActions } from "@/components/cv-pdf-file-actions";
 import { pdfButtonState, pdfJobRefreshesReport, type PdfFailure } from "@/lib/pdf-button-state.mjs";
+import { isWordCvView } from "@/lib/cv-format.mjs";
 import { pipelineQuery } from "@/lib/pipeline-navigation.mjs";
 
 const quietPill =
   "inline-flex items-center justify-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs font-medium text-muted transition-colors hover:border-brand/40 hover:text-brand-text max-sm:min-h-[44px]";
 
-// Fires the real career-ops `pdf` mode (worker kind "pdf") to generate an
+// Fires the real career-ops `pdf` or `docx` mode to generate an
 // ATS-optimized CV tailored to THIS offer → output/cv-… + marks the tracker.
-export function GeneratePdfButton({ n, company, onDisk }: { n: string; company: string; onDisk: boolean }) {
+export function GeneratePdfButton({
+  n,
+  company,
+  onDisk,
+  outputFormat = "pdf",
+  cvIsWord = false,
+}: {
+  n: string;
+  company: string;
+  onDisk: boolean;
+  outputFormat?: "pdf" | "docx";
+  cvIsWord?: boolean;
+}) {
   const { jobs, startJob } = useJobs();
   const router = useRouter();
   const listQuery = pipelineQuery(useSearchParams().toString());
@@ -53,8 +42,8 @@ export function GeneratePdfButton({ n, company, onDisk }: { n: string; company: 
   }, [n, router]);
   const jobQuery = listQuery ? `?${listQuery}` : "";
   const studioHref = `/pipeline/${encodeURIComponent(n)}/cv-studio${jobQuery}`;
-  const viewHref = `/api/cv-pdf?n=${encodeURIComponent(n)}&company=${encodeURIComponent(company)}`;
->>>>>>> career-ops-v1.40.0
+  const kind = outputFormat === "docx" ? "docx" : "pdf";
+  const fileHref = `/api/cv-pdf?n=${encodeURIComponent(n)}&company=${encodeURIComponent(company)}`;
   const job = useMemo(
     () => jobs.filter((j) => (j.kind === "pdf" || j.kind === "docx") && j.input === n).sort((a, b) => b.startedAt - a.startedAt)[0],
     [jobs, n],
@@ -92,24 +81,15 @@ export function GeneratePdfButton({ n, company, onDisk }: { n: string; company: 
         >
           <FileText className="size-3.5" /> View tailored CV
         </a>
-<<<<<<< HEAD
+        <CvPdfFileActions viewHref={fileHref} className={quietPill} />
         {!wordView && (
           <Link
-            href={`/pipeline/${encodeURIComponent(n)}/cv-studio`}
-            className="inline-flex items-center justify-center gap-1.5 rounded-full border border-brand/40 bg-brand-soft px-3 py-1 text-xs font-medium text-brand transition-colors hover:bg-brand-soft/70 max-sm:min-h-[44px]"
+            href={studioHref}
+            className="inline-flex items-center justify-center gap-1.5 rounded-full border border-brand/40 bg-brand-soft px-3 py-1 text-xs font-medium text-brand-text transition-colors hover:bg-brand-soft/70 max-sm:min-h-[44px]"
           >
             <SlidersHorizontal className="size-3.5" /> Review and customize
           </Link>
         )}
-=======
-        <CvPdfFileActions viewHref={viewHref} className={quietPill} />
-        <Link
-          href={studioHref}
-          className="inline-flex items-center justify-center gap-1.5 rounded-full border border-brand/40 bg-brand-soft px-3 py-1 text-xs font-medium text-brand-text transition-colors hover:bg-brand-soft/70 max-sm:min-h-[44px]"
-        >
-          <SlidersHorizontal className="size-3.5" /> Review and customize
-        </Link>
->>>>>>> career-ops-v1.40.0
         <button
           onClick={generate}
           title="Regenerate the tailored CV"

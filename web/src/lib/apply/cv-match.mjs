@@ -35,9 +35,6 @@ export function hasToken(filenameLower, token) {
   return re.test(filenameLower);
 }
 
-<<<<<<< HEAD
-/** `cv-*.pdf` and `cv-*.docx` — extension is the caller's filter, not this matcher. */
-=======
 /**
  * True for the sibling draft generate-pdf.mjs writes when a render runs over
  * its page budget: `{name}.overflow.pdf`, then `.overflow-2.pdf` and so on
@@ -50,7 +47,7 @@ export function isOverflowDraft(filenameLower) {
   return /\.overflow(-\d+)?\.pdf$/.test(filenameLower);
 }
 
->>>>>>> career-ops-v1.40.0
+/** `cv-*.pdf` and `cv-*.docx` — extension is the caller's filter, not this matcher. */
 export function matchesTailoredCv(filenameLower, slug) {
   if (!filenameLower.startsWith('cv-')) return false;
   if (isOverflowDraft(filenameLower)) return false;

@@ -92,20 +92,7 @@ export function pdfIndexCompanionForReport(indexText, reportNumber, kind = "cv")
  *  report number, so a CV lookup must not return it.
  */
 export function pdfIndexEntryForReport(indexText, reportNumber, kind = "cv") {
-<<<<<<< HEAD
-  const row = pdfIndexCompanionForReport(indexText, reportNumber, kind);
-  return { found: row.found, path: row.path };
-=======
-  if (!Number.isInteger(reportNumber)) return { found: false, path: null, html: null };
-  const wanted = kind === "cover" ? "cover" : "cv";
-  const rows = parsePdfManifestRows(indexText);
-  for (const row of rows) {
-    if (!/^\d+$/.test(row.reportId) || Number(row.reportId) !== reportNumber) continue;
-    if (row.kind !== wanted) continue;
-    return { found: true, path: row.pdf || null, html: row.html || null };
-  }
-  return { found: false, path: null, html: null };
->>>>>>> career-ops-v1.40.0
+  return pdfIndexCompanionForReport(indexText, reportNumber, kind);
 }
 
 /** Resolve the exact PDF path recorded for a report in pdf-index.tsv. */

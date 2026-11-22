@@ -153,13 +153,6 @@ jobs:
             test-results/cv-visual-artifacts/
             test-results/cv-visual-results/
           if-no-files-found: ignore
-  # Fork: the upgrade regression gate is not executed. It rehearses an update
-  # from a career-ops-v* tag, and this repo does not publish those tags.
-  # tests/root-tests-registration.test.mjs still requires a real `run:` whose
-  # first command is `node upgrade-tests.mjs`. `if: false` keeps that
-  # invocation visible and skips the job.
-  upgrade-tests-registered:
-    if: false
   tool-suites:
     name: Browser and LaTeX suites
     # The test job installs no browser and no TeX engine, so the suites that
@@ -189,12 +182,14 @@ jobs:
             --volume "$PWD:/work" --volume /work/node_modules \
             career-ops-cv-visual \
             sh -c 'npm install --ignore-scripts --package-lock=false && node install-latex-engine.mjs && node test-all.mjs --needs browser,latex'
+  # Fork: the upgrade regression gate is not executed. It rehearses an update
+  # from a career-ops-v* tag, and this repo does not publish those tags.
+  # tests/root-tests-registration.test.mjs still requires a real `run:` whose
+  # first command is `node upgrade-tests.mjs`. `if: false` keeps that
+  # invocation visible and skips the job.
   upgrade-gate:
     name: Upgrade regression gate
-    # Skipped in the merge queue for cv-visual's reason above.
-    needs: changes
-    # Skipped on a docs-only PR for the reason given on cv-visual.
-    if: ${{ !cancelled() && github.event_name != 'merge_group' && needs.changes.outputs.docs_only != 'true' }}
+    if: false
     runs-on: ubuntu-latest
     # About 3 minutes. Limited for the test job's reason.
     timeout-minutes: 20

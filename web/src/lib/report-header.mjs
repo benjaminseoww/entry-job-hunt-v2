@@ -7,12 +7,8 @@ const FIELD_KEYS = {
   score: "Score",
   legitimacy: "Legitimacy",
   legitimidad: "Legitimacy",
-<<<<<<< HEAD
   pdf: "CV",
-=======
-  pdf: "PDF",
   "evaluation scope": "Evaluation scope",
->>>>>>> career-ops-v1.40.0
 };
 
 const DECISION_LABELS = {

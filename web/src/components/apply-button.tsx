@@ -37,22 +37,6 @@ export function ApplyButton({
   const start = useStartApply();
   const dest = applyDestination({ n, pdfOnDisk: pdfReady, postingUrl: url, alreadyOnReport });
 
-<<<<<<< HEAD
-  const pdfJobDone = jobs.some((j) => (j.kind === "pdf" || j.kind === "docx") && j.input === n && j.status === "done");
-  const hasUrl = !!url && /^https?:\/\//i.test(url);
-  const ready = (pdfReady || pdfJobDone) && hasUrl;
-
-  if (!ready) {
-    return (
-      <button
-        type="button"
-        disabled
-        title={!hasUrl ? "No application URL on this report" : "Generate the tailored CV first to apply"}
-        className="inline-flex cursor-not-allowed items-center justify-center gap-1.5 rounded-full border border-border bg-surface/40 px-3.5 py-1 text-xs font-medium text-faint max-sm:min-h-[44px]"
-      >
-        <Lock className="size-3.5" /> Apply
-      </button>
-=======
   if (dest.kind !== "apply") {
     return (
       <span className="inline-flex max-w-sm flex-col items-start gap-0.5">
@@ -63,7 +47,6 @@ export function ApplyButton({
           </Link>
         )}
       </span>
->>>>>>> career-ops-v1.40.0
     );
   }
   return (

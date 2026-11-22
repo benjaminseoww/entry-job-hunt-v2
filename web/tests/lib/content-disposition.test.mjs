@@ -1,10 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-<<<<<<< HEAD
-import { attachmentDisposition, inlineDisposition } from "../../src/lib/content-disposition.mjs";
-=======
 import { attachmentDisposition, cvPdfDisposition, inlineDisposition } from "../../src/lib/content-disposition.mjs";
->>>>>>> career-ops-v1.40.0
 
 const NAMES = [
   "cv-jane-doe-007-acme-2026-07-01.pdf",
@@ -35,13 +31,13 @@ test("a non-ASCII name gets a quoted ASCII fallback", () => {
   assert.match(inlineDisposition("cv-łukasz.pdf"), /^inline; filename="cv-\?ukasz\.pdf"; /);
 });
 
-<<<<<<< HEAD
 test("attachmentDisposition downloads a Word file", () => {
   const value = attachmentDisposition("cv-jane.docx");
   assert.match(value, /^attachment; filename="cv-jane\.docx"; /);
   const res = new Response("x", { headers: { "Content-Disposition": value } });
   assert.match(res.headers.get("content-disposition"), /^attachment;/);
-=======
+});
+
 test("attachment names a plain file and a name with a non-ASCII character and a quote", () => {
   const plain = attachmentDisposition("cv-a-001-acme.pdf");
   assert.equal(
@@ -71,5 +67,4 @@ test("download=1 attaches the on-disk basename and a missing flag stays inline",
     cvPdfDisposition(file, null),
     `inline; filename="cv-a-001-acme.pdf"; filename*=UTF-8''cv-a-001-acme.pdf`,
   );
->>>>>>> career-ops-v1.40.0
 });

@@ -29,12 +29,9 @@ type ApplyCtx = {
   issues: ApplyIssue[];
   driveSteps: DriveStep[];
   error: string;
-<<<<<<< HEAD
   cvFormat: "Word" | "PDF";
-=======
   /** Set when the posting is Workday, iCIMS, or UKG. Drive and prefill do not run. */
   blockedAts: { message: string; postingUrl: string; checklistHref: string } | null;
->>>>>>> career-ops-v1.40.0
   open: (url: string, opts?: { prefill?: boolean; company?: string; n?: string; from?: string }) => Promise<void>;
   prefill: () => Promise<void>;
   setAnswer: (idOrLabel: string, value: string) => void;
@@ -81,11 +78,8 @@ export function ApplyProvider({ children }: { children: React.ReactNode }) {
   const [issues, setIssues] = useState<ApplyIssue[]>([]);
   const [driveSteps, setDriveSteps] = useState<DriveStep[]>([]);
   const [error, setError] = useState("");
-<<<<<<< HEAD
   const [cvFormat, setCvFormat] = useState<"Word" | "PDF">("PDF");
-=======
   const [blockedAts, setBlockedAts] = useState<ApplyCtx["blockedAts"]>(null);
->>>>>>> career-ops-v1.40.0
   const sessionId = useRef<string | null>(null);
   const companyRef = useRef<string>("");
   // Mirrors `n` for the async fetch below, same reason as companyRef: the
@@ -463,13 +457,8 @@ export function ApplyProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(
-<<<<<<< HEAD
-    () => ({ status, url, title, company, n, from, fields, answers, meta, steps, shots, prefillLog, issues, driveSteps, error, cvFormat, open, prefill, setAnswer, fill, agentFill, reset }),
-    [status, url, title, company, n, from, fields, answers, meta, steps, shots, prefillLog, issues, driveSteps, error, cvFormat, open, prefill, setAnswer, fill, agentFill, reset],
-=======
-    () => ({ status, url, title, company, n, from, fields, answers, meta, steps, shots, prefillLog, issues, driveSteps, error, blockedAts, open, prefill, setAnswer, fill, agentFill, reset }),
-    [status, url, title, company, n, from, fields, answers, meta, steps, shots, prefillLog, issues, driveSteps, error, blockedAts, open, prefill, setAnswer, fill, agentFill, reset],
->>>>>>> career-ops-v1.40.0
+    () => ({ status, url, title, company, n, from, fields, answers, meta, steps, shots, prefillLog, issues, driveSteps, error, cvFormat, blockedAts, open, prefill, setAnswer, fill, agentFill, reset }),
+    [status, url, title, company, n, from, fields, answers, meta, steps, shots, prefillLog, issues, driveSteps, error, cvFormat, blockedAts, open, prefill, setAnswer, fill, agentFill, reset],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

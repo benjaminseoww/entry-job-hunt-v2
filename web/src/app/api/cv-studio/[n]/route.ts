@@ -1,10 +1,6 @@
 import { NextResponse } from "next/server";
 import { readJsonObject } from "@/lib/json-body";
-<<<<<<< HEAD
-import { keywordsInText, loadStudio, renderEditedPdf, saveEdits, WORD_CV_MESSAGE } from "@/lib/cv-studio/server";
-=======
-import { keywordsInText, loadStudio, missingDataFolderMessage, renderEditedPdf, saveEdits } from "@/lib/cv-studio/server";
->>>>>>> career-ops-v1.40.0
+import { keywordsInText, loadStudio, missingDataFolderMessage, renderEditedPdf, saveEdits, WORD_CV_MESSAGE } from "@/lib/cv-studio/server";
 import { acquireTrackerWrite, releaseTrackerWrite } from "@/lib/core/run-registry";
 import { parseEdits } from "@/lib/cv-studio/studio.mjs";
 import { createPutOrder } from "@/lib/cv-studio/put-order.mjs";

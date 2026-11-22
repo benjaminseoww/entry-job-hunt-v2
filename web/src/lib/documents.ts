@@ -2,13 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { parsePdfManifestRows } from "./apply/cv-selection.mjs";
-<<<<<<< HEAD
 import { DOCX_MIME, attachmentDisposition, inlineDisposition } from "./content-disposition.mjs";
 import { isCvOutputFilename, isDocxPath } from "./cv-format.mjs";
-=======
-import { inlineDisposition } from "./content-disposition.mjs";
 import { presentDocument } from "./document-title.mjs";
->>>>>>> career-ops-v1.40.0
 
 export type DocumentKind = "cv" | "cover" | "unknown";
 

@@ -31,13 +31,8 @@ const REASONS: Record<string, { title: string; body: string }> = {
   "word-cv": { title: "Word CVs are not editable here yet", body: "CV Studio does not edit Word CVs yet. Open the .docx from the report page instead." },
 };
 
-<<<<<<< HEAD
 const STALE = SAVE_ERRORS.stale;
-=======
-const STALE = "This CV was regenerated in another tab. Reload the Studio.";
 const KEEPALIVE_BYTES = 60_000;
-const SAVE_ERRORS: Record<string, string> = { stale: STALE, busy: "This CV is already being saved. Wait for that save to finish." };
->>>>>>> career-ops-v1.40.0
 
 export function CvStudio({ n }: { n: string }) {
   const listQuery = pipelineQuery(useSearchParams().toString());
@@ -207,14 +202,9 @@ function Studio({ n, data }: { n: string; data: Loaded }) {
     // to see that payload or it will skip the restored edits.
     postingJsonRef.current = serialized;
     try {
-<<<<<<< HEAD
-      const r = await send("POST", { op: "save", edits });
-      const body = (await r.json()) as { pdf?: string; indexed?: boolean; warnings?: string[]; error?: string; message?: string };
-      setSave(r.ok && body.pdf ? { kind: "saved", pdf: body.pdf, indexed: body.indexed === true, warnings: body.warnings ?? [] } : { kind: "failed", error: studioErrorMessage(body, "Saving failed.") });
-=======
       revRef.current += 1;
       const r = await send("POST", { op: "save", edits: sent, tab: tabRef.current, rev: revRef.current });
-      const body = (await r.json()) as { pdf?: string; indexed?: boolean; warnings?: string[]; error?: string; superseded?: boolean };
+      const body = (await r.json()) as { pdf?: string; indexed?: boolean; warnings?: string[]; error?: string; message?: string; superseded?: boolean };
       const wrote = postWroteEdits(r.status, body.superseded === true, body.error);
       // Drop the in-flight Save for apply before the follow-up PUT. Otherwise
       // the same payload looks like it is already on the wire and is skipped.
@@ -230,13 +220,12 @@ function Studio({ n, data }: { n: string; data: Loaded }) {
         return;
       }
       if (!r.ok || !body.pdf) {
-        setSave({ kind: "failed", error: SAVE_ERRORS[body.error ?? ""] ?? body.error ?? "Saving failed." });
+        setSave({ kind: "failed", error: studioErrorMessage(body, "Saving failed.") });
       } else if (latestEdits.current !== sent) {
         setSave({ kind: "outdated", pdf: body.pdf });
       } else {
         setSave({ kind: "saved", pdf: body.pdf, indexed: body.indexed === true, warnings: body.warnings ?? [] });
       }
->>>>>>> career-ops-v1.40.0
     } catch {
       // The response never arrived. The server may already have stored this
       // payload. Send the screen even when it still matches that payload, so a

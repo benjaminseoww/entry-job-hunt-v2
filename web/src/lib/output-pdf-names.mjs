@@ -15,7 +15,9 @@ export function listOutputPdfNames(outputDir, isRegularFile) {
     throw err;
   }
   return names.filter((name) => {
-    if (typeof name !== "string" || !name.toLowerCase().endsWith(".pdf")) return false;
+    if (typeof name !== "string") return false;
+    const lower = name.toLowerCase();
+    if (!lower.endsWith(".pdf") && !lower.endsWith(".docx")) return false;
     return isRegularFile(path.join(outputDir, name), outputDir);
   });
 }
