@@ -113,7 +113,8 @@ test('every uses: ref is pinned to a commit SHA with a version comment', () => {
       }
     });
   }
-  assert.ok(refs >= 50, `expected 50+ uses: refs, found ${refs}; is the walk still reaching them?`);
+  // Fork: community-only workflows are disabled stubs with no uses: refs.
+  assert.ok(refs >= 30, `expected 30+ uses: refs, found ${refs}; is the walk still reaching them?`);
   assert.deepEqual(problems, [], `pin these to the commit of their current release, with a # vX.Y.Z comment:\n  ${problems.join('\n  ')}`);
 });
 
@@ -191,7 +192,9 @@ test('exactAtLeast accepts only an exact version at or above the floor', () => {
   for (const bad of ['11.5.0', '10.9.9', 'latest', '', '12', '^12.2.2', '12.2.2-pre.1']) assert.ok(!exactAtLeast(bad, floor), bad);
 });
 
-test('release.yml upgrades to an exact npm, at least 11.5.1, before it publishes', () => {
+const RELEASE_DISABLED = /^# Disabled on this fork\./.test(readFileSync(join(ROOT, '.github/workflows/release.yml'), 'utf8'));
+
+test('release.yml upgrades to an exact npm, at least 11.5.1, before it publishes', { skip: RELEASE_DISABLED && 'release.yml is disabled on this fork' }, () => {
   const wf = load(readFileSync(join(ROOT, '.github/workflows/release.yml'), 'utf8'));
   let publishes = 0;
   for (const [name, job] of Object.entries(wf.jobs)) {

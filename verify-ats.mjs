@@ -686,7 +686,7 @@ function auditAts(html, opts = {}) {
   ];
   const localizedMatches = additionalSections
     .filter(section => section.re.test(headingBlob))
-    .map(section => section.name)
+    .map(section => section.name.toLowerCase())
     .join(' ');
   score += applySectionScore(`${headingBlob} ${localizedMatches}`,
     (severity, message) => add('section-headings', severity, message));

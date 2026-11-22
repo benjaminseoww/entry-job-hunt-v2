@@ -382,6 +382,7 @@ All of them share one router, `.agents/skills/career-ops/SKILL.md`, and the same
 | [`pdf`](modes/pdf.md) | ATS-optimized CV as a PDF |
 | [`ats`](modes/ats.md) | ATS-friendliness check of a generated CV: score and fixable issues |
 | [`text`](modes/text.md) | Tailored CV as markdown (mirrors `cv.md`, no PDF) |
+| [`docx`](modes/docx.md) | Tailored CV as a Word (`.docx`) file |
 | [`latex`](modes/latex.md) | Export the CV as LaTeX/Overleaf `.tex` |
 | [`latex-tex`](modes/latex-tex.md) | Tailor your own `resume.tex` in place (opt-in; `cv.md` stays the default) |
 | [`cover`](modes/cover.md) | Cover letter, from a pasted JD or an evaluated report (`cover {slug}`) |

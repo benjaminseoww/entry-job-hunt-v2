@@ -119,8 +119,11 @@ test('--help and -h print the usage and draw nothing', () => {
 
 test('the workflows redraw the badges they own', () => {
   const wall = readFileSync(join(ROOT, '.github', 'workflows', 'hired-wall.yml'), 'utf8');
-  assert.ok(wall.includes('node .github/scripts/readme-badges.mjs hired'));
-  assert.match(wall, /git add [^\n]*docs\/hired-badge\.svg/);
+  // Fork: hired-wall.yml is a disabled stub; it redraws nothing here.
+  if (!/^# Disabled on this fork\./.test(wall)) {
+    assert.ok(wall.includes('node .github/scripts/readme-badges.mjs hired'));
+    assert.match(wall, /git add [^\n]*docs\/hired-badge\.svg/);
+  }
   const weekly = readFileSync(join(ROOT, '.github', 'workflows', 'readme-badges.yml'), 'utf8');
   assert.ok(weekly.includes('node .github/scripts/readme-badges.mjs discord npm'));
   assert.match(weekly, /cron:/);
