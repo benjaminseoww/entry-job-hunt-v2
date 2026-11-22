@@ -466,6 +466,7 @@ test('layout: the document applies the reference values', () => {
   assert.ok(xml.indexOf('PROFESSIONAL SUMMARY') < xml.indexOf('WORK EXPERIENCE'));
   const summary = xml.split('>PROFESSIONAL SUMMARY<')[1].split('>WORK EXPERIENCE<')[0];
   assert.match(summary, new RegExp(`<w:ind w:left="${LAYOUT.bodyIndent}"/>`), 'body indent');
+  assert.match(summary, new RegExp(`w:before="${LAYOUT.entryBefore}"`), 'summary gap under the rule matches an entry');
   assert.match(summary, new RegExp(`w:ascii="${LAYOUT.font}"`), 'body font');
   assert.match(summary, new RegExp(`<w:sz w:val="${LAYOUT.bodySize}"/>`), 'body size');
   const experience = xml.split('>WORK EXPERIENCE<')[1].split('>PROJECTS<')[0];
