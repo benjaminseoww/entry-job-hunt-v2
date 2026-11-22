@@ -1,5 +1,6 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { describeSpawn, exitedNonZero } from './helpers/describe-spawn.mjs';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -633,7 +634,7 @@ test('cli: refuses a wrong extension, a missing input, an unknown template and a
     assert.match(run([input, join(dir, 'cv.docx'), '--template=missing']).stderr, /Template not found/);
     assert.match(run([input, join(dir, 'cv.docx'), '--template=../x']).stderr, /Invalid template name/);
     const stray = run([input, join(dir, 'cv.docx'), '--bogus']);
-    assert.notEqual(stray.status, 0);
+    assert.ok(exitedNonZero(stray), describeSpawn(stray, 'stray --bogus flag'));
   });
 });
 

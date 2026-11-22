@@ -66,7 +66,7 @@ test('docx mode archives the JD, runs skill-gap, title, structure and keyword co
   assert.match(mode, /node jd-skill-gap\.mjs /);
   assert.match(mode, /node cv-title-check\.mjs /);
   assert.match(mode, /node verify-cv-structure\.mjs /);
-  assert.match(mode, /node keyword-match\.mjs /);
+  assert.match(mode, /"keyword-match\.mjs"/);
 });
 
 test('docx mode offers a PDF cover letter and never auto-generates it', () => {

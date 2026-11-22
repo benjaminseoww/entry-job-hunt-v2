@@ -4,6 +4,7 @@ import path from "node:path";
 import { parsePdfManifestRows } from "./apply/cv-selection.mjs";
 import { DOCX_MIME, attachmentDisposition, inlineDisposition } from "./content-disposition.mjs";
 import { isCvOutputFilename, isDocxPath } from "./cv-format.mjs";
+import { presentDocument } from "./document-title.mjs";
 
 export type DocumentKind = "cv" | "cover" | "unknown";
 
@@ -167,6 +168,7 @@ export async function handleDocumentsRequest(
   root: string,
   manifestPath: string | null,
   isRegularContainedFile: (absPath: string, root: string) => boolean,
+  applications?: { n?: string; company?: string; role?: string; report?: string }[],
 ) {
   const url = new URL(req.url);
   const id = url.searchParams.get("id");
@@ -233,15 +235,21 @@ export async function handleDocumentsRequest(
     }
   }
 
-  const payload = documents.map((doc) => ({
-    id: encodeId(doc.filename),
-    filename: doc.filename,
-    kind: doc.kind,
-    date: doc.date,
-    reportId: doc.reportId,
-    format: doc.format,
-    mtimeMs: doc.mtimeMs,
-  }));
+  const payload = documents.map((doc) => {
+    const presented = presentDocument(doc, applications);
+    return {
+      id: encodeId(doc.filename),
+      filename: doc.filename,
+      kind: doc.kind,
+      date: doc.date,
+      reportId: doc.reportId,
+      format: doc.format,
+      mtimeMs: doc.mtimeMs,
+      company: presented.company,
+      role: presented.role,
+      title: presented.title,
+    };
+  });
 
   return Response.json(payload, {
     headers: { "Cache-Control": "no-store" },

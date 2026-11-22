@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { describeSpawn, exitedNonZero } from './helpers/describe-spawn.mjs';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const SCRIPT = join(ROOT, 'generate-docx.mjs');
@@ -136,7 +137,7 @@ test('--companion outside the workspace is rejected', () => {
     writeFileSync(outside, '# leak\n');
     try {
       const r = run(root, env, [input, output, '--report=7', `--companion=${outside}`, '--json']);
-      assert.notEqual(r.status, 0);
+      assert.ok(exitedNonZero(r), describeSpawn(r, 'companion outside workspace'));
       assert.match(r.stderr, /inside the workspace/);
       assert.equal(existsSync(join(root, 'data', 'pdf-index.tsv')), false);
     } finally {
